@@ -191,6 +191,15 @@ export interface AppConfig {
     /** 'none' = a plain built-in month calendar; 'google' = also show Google Calendar events. */
     source: 'none' | 'google'
   }
+  appearance: {
+    /**
+     * How embedded web pages (Browser, Mail, ChatGPT, ...) are themed:
+     * - 'dark': pages see prefers-color-scheme: dark and use their own dark theme if they have one
+     * - 'force-dark': additionally darken pages without a dark theme (Chromium auto dark; needs a restart)
+     * - 'light' / 'system': the opposite / follow the OS
+     */
+    webTheme: WebTheme
+  }
   aiBuilder: {
     mode: 'web-bridge' | 'api-agent'
     webBridgeUrl: string
@@ -229,6 +238,8 @@ export function resolveMail(mail: AppConfig['mail']): { url: string; partitionId
   const preset = MAIL_PROVIDERS.find((p) => p.id === mail.provider) ?? MAIL_PROVIDERS[0]
   return { url: preset.url, partitionId: preset.partitionId, label: preset.label }
 }
+
+export type WebTheme = 'dark' | 'force-dark' | 'light' | 'system'
 
 export type SearchEngineId = 'duckduckgo' | 'google' | 'bing' | 'brave'
 

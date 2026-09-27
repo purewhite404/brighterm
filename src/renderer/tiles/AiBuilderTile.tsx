@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../store/appStore'
-import { buildAddTilePrompt, buildFixPrompt, copyToClipboard } from '../ai/promptBuilder'
+import { buildAddTilePrompt, buildFixPrompt } from '../ai/promptBuilder'
+import { CopyButton } from '../ui/CopyButton'
 import type { PluginInstallResult } from '../../main/plugins/pluginHost'
 import { Icon } from '../ui/Icon'
 import { useEmbeddedWebView } from './useEmbeddedWebView'
@@ -208,11 +209,6 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
     updateConfig({ aiBuilder: { ...config.aiBuilder, mode: next } })
   }
 
-  const preparePrompt = async (): Promise<void> => {
-    if (!request.trim()) return
-    await copyToClipboard(buildAddTilePrompt(request))
-  }
-
   const runValidate = async (): Promise<void> => {
     if (!bundleText.trim()) return
     setBusy(true)
@@ -236,11 +232,8 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
     }
   }
 
-  const copyFixPrompt = async (): Promise<void> => {
-    if (!validation) return
-    const errors = validation.errors.map((e) => (e.file ? `${e.file}: ${e.message}` : e.message))
-    await copyToClipboard(buildFixPrompt(errors))
-  }
+  const fixPromptText = (): string =>
+    buildFixPrompt((validation?.errors ?? []).map((e) => (e.file ? `${e.file}: ${e.message}` : e.message)))
 
   const modeToggle = (
     <div className="bt-ai-builder__row" style={{ padding: '8px 8px 0' }}>
@@ -282,9 +275,7 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
               onChange={(e) => setRequest(e.target.value)}
               placeholder="例: 写真フォルダを見るビューアを追加して"
             />
-            <button onClick={preparePrompt} disabled={!request.trim()}>
-              <Icon name="copy" size={14} /> コピー
-            </button>
+            <CopyButton getText={() => buildAddTilePrompt(request)} disabled={!request.trim()} />
           </div>
           <div className="bt-ai-builder__scope-note">
             コピーした依頼文を左のチャットに貼り付けて送信してください。返ってきたコードブロックは下に貼り付けます。
@@ -319,9 +310,7 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
             <div className="bt-etc__title">結果</div>
             <IssueList result={validation} />
             {validation.errors.length > 0 && (
-              <button onClick={copyFixPrompt} style={{ marginTop: 8 }}>
-                <Icon name="copy" size={14} /> 修正依頼をコピー
-              </button>
+              <CopyButton getText={fixPromptText} label="修正依頼をコピー" style={{ marginTop: 8 }} />
             )}
           </div>
         )}

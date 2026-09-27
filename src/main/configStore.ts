@@ -31,6 +31,7 @@ function defaultConfig(): AppConfig {
     mail: { provider: 'gmail' },
     search: { engine: 'duckduckgo' },
     calendar: { source: 'none' },
+    appearance: { webTheme: 'dark' },
     aiBuilder: {
       mode: 'web-bridge',
       webBridgeUrl: 'https://chatgpt.com/',

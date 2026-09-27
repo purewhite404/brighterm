@@ -10,6 +10,8 @@ const searchInput = document.getElementById('search')
 const fileListEl = document.getElementById('file-list')
 const titleInput = document.getElementById('title')
 const contentArea = document.getElementById('content')
+const changeFolderBtn = document.getElementById('change-folder')
+const folderLabel = document.getElementById('folder-label')
 
 let folderHandle = null
 let files = [] // { name, isDirectory }
@@ -36,14 +38,23 @@ function showScreen(which) {
   notesScreen.hidden = which !== 'notes'
 }
 
-pickFolderBtn.addEventListener('click', async () => {
+async function chooseFolder() {
   const handle = await window.brighterm.fs.pickFolder()
   if (!handle) return
   folderHandle = handle
+  currentFile = null
+  titleInput.value = ''
+  contentArea.value = ''
   await window.brighterm.storage.set('folderHandle', handle)
   await refreshFileList()
   showScreen('notes')
-})
+  // Open the first note, or leave the editor ready — typing creates one.
+  if (files.length > 0) await openFile(files[0].name)
+  contentArea.focus()
+}
+
+pickFolderBtn.addEventListener('click', chooseFolder)
+changeFolderBtn.addEventListener('click', chooseFolder)
 
 async function refreshFileList() {
   const all = await window.brighterm.fs.listFiles(folderHandle)
@@ -52,6 +63,8 @@ async function refreshFileList() {
 }
 
 function renderFileList() {
+  folderLabel.textContent = folderHandle ? folderHandle.label : ''
+  folderLabel.title = folderLabel.textContent
   const query = searchInput.value.trim().toLowerCase()
   const visible = query ? files.filter((f) => f.name.toLowerCase().includes(query)) : files
 
@@ -88,13 +101,34 @@ function scheduleSave() {
   saveTimer = setTimeout(saveCurrent, 400)
 }
 
+/** A file name for a new note, from the title if one was typed. */
+function newFileName() {
+  const base = titleInput.value.trim().replace(/[\\/:*?"<>|]/g, '_') || `メモ-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}`
+  let name = `${base}.md`
+  let n = 2
+  while (files.some((f) => f.name === name)) name = `${base} (${n++}).md`
+  return name
+}
+
 async function saveCurrent() {
-  if (!currentFile) return
+  if (!folderHandle) return
+  if (!currentFile) {
+    // Typing with no note open (e.g. a brand-new, empty folder) starts a new note.
+    if (!contentArea.value && !titleInput.value.trim()) return
+    currentFile = newFileName()
+    titleInput.value = currentFile.replace(/\.md$/i, '')
+    await window.brighterm.fs.writeFile(folderHandle, currentFile, contentArea.value)
+    await refreshFileList()
+    return
+  }
   await window.brighterm.fs.writeFile(folderHandle, currentFile, contentArea.value)
 }
 
 async function renameCurrent() {
-  if (!currentFile) return
+  if (!currentFile) {
+    await saveCurrent()
+    return
+  }
   const newName = `${titleInput.value.trim() || 'Untitled'}.md`
   if (newName === currentFile) return
   const oldName = currentFile

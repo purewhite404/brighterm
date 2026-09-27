@@ -1158,3 +1158,27 @@ body,
   color: var(--bt-text-primary);
   font-family: inherit;
 }
+
+.bt-settings__restart {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+  padding: var(--bt-space-2) var(--bt-space-3);
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-accent-soft);
+  font-size: var(--bt-font-size-sm);
+}
+
+.bt-settings__restart button {
+  padding: 3px 10px;
+  border: none;
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-accent);
+  color: var(--bt-text-on-accent);
+  cursor: pointer;
+}
+
+.bt-copy-button--copied {
+  border-color: var(--bt-success) !important;
+  color: var(--bt-success) !important;
+}

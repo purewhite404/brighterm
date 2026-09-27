@@ -4,7 +4,7 @@ import type { EtcFileDescriptor, DiffOp, HistoryEntry } from '../../main/etc/etc
 import type { ExecResult } from '../../main/etc/validators'
 import { Icon } from '../ui/Icon'
 import { useAppStore } from '../store/appStore'
-import { MAIL_PROVIDERS, SEARCH_ENGINES, type SearchEngineId } from '@shared/types'
+import { MAIL_PROVIDERS, SEARCH_ENGINES, type SearchEngineId, type WebTheme } from '@shared/types'
 
 function OsShortcutList(): React.JSX.Element {
   const [shortcuts, setShortcuts] = useState<SettingsShortcut[]>([])
@@ -30,6 +30,14 @@ function AppPreferences(): React.JSX.Element | null {
   const config = useAppStore((s) => s.config)
   const updateConfig = useAppStore((s) => s.updateConfig)
   const [customUrl, setCustomUrl] = useState(config?.mail.customUrl ?? '')
+  const [restartRequired, setRestartRequired] = useState(false)
+  const [isPackaged, setIsPackaged] = useState(false)
+
+  useEffect(() => {
+    void window.api.app.restartRequired().then(setRestartRequired)
+    void window.api.app.isPackaged().then(setIsPackaged)
+  }, [])
+
   if (!config) return null
 
   return (
@@ -73,6 +81,32 @@ function AppPreferences(): React.JSX.Element | null {
           ))}
         </select>
       </label>
+      <label className="bt-settings__field">
+        <span>Web ページの外観</span>
+        <select
+          value={config.appearance.webTheme}
+          onChange={(e) => {
+            updateConfig({ appearance: { webTheme: e.target.value as WebTheme } })
+            // IPC is ordered, so main has the new value by the time this is answered.
+            void window.api.app.restartRequired().then(setRestartRequired)
+          }}
+        >
+          <option value="dark">ダーク（サイトが対応していれば）</option>
+          <option value="force-dark">常にダーク（未対応のサイトも自動で暗く・再起動が必要）</option>
+          <option value="system">OS の設定に合わせる</option>
+          <option value="light">ライト</option>
+        </select>
+      </label>
+      {restartRequired && (
+        <div className="bt-settings__restart">
+          この変更は再起動後に反映されます。
+          {isPackaged ? (
+            <button onClick={() => void window.api.app.relaunch()}>今すぐ再起動</button>
+          ) : (
+            <span>（開発モードでは <code>npm run dev</code> を起動し直してください）</span>
+          )}
+        </div>
+      )}
       <div className="bt-text-muted" style={{ fontSize: 12 }}>
         カレンダーの Google 連携は、Calendar タイルの右上から設定できます。
       </div>

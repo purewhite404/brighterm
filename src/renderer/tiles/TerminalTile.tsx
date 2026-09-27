@@ -14,6 +14,7 @@ export function TerminalTile({ tileId }: { tileId: string }): React.JSX.Element 
   const containerRef = useRef<HTMLDivElement | null>(null)
   const tile = useAppStore((s) => selectActiveWorkspace(s)?.tiles[tileId])
   const config = (tile?.config ?? {}) as { shellId?: string; cwd?: string }
+  const closeTile = useAppStore((s) => s.closeTile)
 
   useEffect(() => {
     const container = containerRef.current
@@ -48,8 +49,17 @@ export function TerminalTile({ tileId }: { tileId: string }): React.JSX.Element 
     const unsubData = window.api.pty.onData((id, data) => {
       if (id === tileId && attached && !disposed) term.write(data)
     })
+    let startedAt = Date.now()
     const unsubExit = window.api.pty.onExit((id, exitCode) => {
-      if (id === tileId && !disposed) term.write(`\r\n\x1b[90m[プロセスが終了しました (code ${exitCode})]\x1b[0m\r\n`)
+      if (id !== tileId || disposed) return
+      // A shell that dies right after starting with an error is a failed
+      // launch — keep the tile so its output can be read. Otherwise the user
+      // typed `exit`: close the tile, like closing a terminal window.
+      if (exitCode !== 0 && Date.now() - startedAt < 2000) {
+        term.write(`\r\n\x1b[90m[シェルの起動に失敗しました (code ${exitCode})]\x1b[0m\r\n`)
+        return
+      }
+      closeTile(tileId)
     })
     const inputSub = term.onData((data) => window.api.pty.write(tileId, data))
 
@@ -63,6 +73,7 @@ export function TerminalTile({ tileId }: { tileId: string }): React.JSX.Element 
       .then(({ backlog }) => {
         if (disposed) return
         if (backlog) term.write(backlog)
+        else startedAt = Date.now()
         attached = true
         term.focus()
       })

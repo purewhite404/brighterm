@@ -52,6 +52,12 @@ const api = {
     }
   },
 
+  app: {
+    restartRequired: (): Promise<boolean> => ipcRenderer.invoke('app:restart-required'),
+    relaunch: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
+    isPackaged: (): Promise<boolean> => ipcRenderer.invoke('app:is-packaged')
+  },
+
   overlay: {
     show: (): Promise<void> => ipcRenderer.invoke('overlay:show'),
     hide: (): Promise<void> => ipcRenderer.invoke('overlay:hide')

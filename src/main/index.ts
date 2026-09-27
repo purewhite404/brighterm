@@ -1,4 +1,4 @@
-import { app, BaseWindow, WebContentsView, dialog, ipcMain, shell } from 'electron'
+import { app, BaseWindow, WebContentsView, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from './utils/env'
 import { ConfigStore } from './configStore'
@@ -23,7 +23,7 @@ import { buildAgentSystemPrompt } from './builder/systemPrompt'
 import { OpenAiAgentProvider } from './builder/providers/openai'
 import { cpSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { IPC, type AppConfig, type Card, type Rect } from '@shared/types'
+import { IPC, type AppConfig, type Card, type Rect, type WebTheme } from '@shared/types'
 
 // Single instance: a second launch just focuses the existing window instead
 // of opening a duplicate command HQ.
@@ -35,9 +35,25 @@ if (!gotLock) {
 // Must run before app.ready.
 registerPluginSchemeAsPrivileged()
 
+// Config is read before app.ready (app.getPath works this early) because
+// Chromium's forced dark mode can only be switched on at startup.
+const configStore = new ConfigStore()
+/** The web theme this process started with — force-dark can't change without a restart. */
+const startupWebTheme = configStore.get().appearance.webTheme
+if (startupWebTheme === 'force-dark') {
+  // Chromium's "Auto Dark Mode for Web Contents": darkens pages that have no
+  // dark theme of their own. Set through Blink's settings directly — the
+  // WebContentsForceDark feature flag alone had no effect in this Electron.
+  app.commandLine.appendSwitch('blink-settings', 'forceDarkModeEnabled=true')
+}
+
+/** Tells every embedded page which color scheme to prefer (takes effect immediately). */
+function applyWebTheme(theme: WebTheme): void {
+  nativeTheme.themeSource = theme === 'light' ? 'light' : theme === 'system' ? 'system' : 'dark'
+}
+
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
-let configStore: ConfigStore
 let viewManager: ViewManager
 let ptyManager: PtyManager
 let etcService: EtcService
@@ -106,7 +122,22 @@ function resizeShellView(): void {
 
 function registerIpcHandlers(): void {
   ipcMain.handle(IPC.configGet, () => configStore.get())
-  ipcMain.handle(IPC.configSet, (_event, patch: Partial<AppConfig>) => configStore.set(patch))
+  ipcMain.handle(IPC.configSet, (_event, patch: Partial<AppConfig>) => {
+    const next = configStore.set(patch)
+    if (patch.appearance) applyWebTheme(next.appearance.webTheme)
+    return next
+  })
+  ipcMain.handle('app:restart-required', () => {
+    // Only switching force-dark on or off needs a restart.
+    const now = configStore.get().appearance.webTheme
+    return (now === 'force-dark') !== (startupWebTheme === 'force-dark')
+  })
+  ipcMain.handle('app:relaunch', () => {
+    configStore.flush()
+    app.relaunch()
+    app.exit(0)
+  })
+  ipcMain.handle('app:is-packaged', () => app.isPackaged)
 
   ipcMain.handle(IPC.tileCreate, (_event, args: { tileId: string; kind: string; url?: string; partitionId?: string; compactCss?: string }) => {
     if (args.kind === 'web' || args.kind === 'plugin') {
@@ -393,7 +424,7 @@ function startMemoryLoop(): void {
 }
 
 app.whenReady().then(() => {
-  configStore = new ConfigStore()
+  applyWebTheme(configStore.get().appearance.webTheme)
   etcService = new EtcService(join(app.getPath('userData'), 'etc-history'))
   pluginHost = new PluginHost(join(app.getPath('userData'), 'plugins'))
   // __dirname (not app.getAppPath()) so this resolves the same way in dev
