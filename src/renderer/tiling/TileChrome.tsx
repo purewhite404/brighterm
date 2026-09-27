@@ -1,7 +1,8 @@
-import { useMemo } from 'react'
+import { useContext, useMemo } from 'react'
 import { useAppStore, selectActiveWorkspace } from '../store/appStore'
 import { resolveTileComponent } from '../tiles/registry'
 import { Icon } from '../ui/Icon'
+import { TileDragContext, TILE_DRAG_MIME } from './tileContexts'
 
 function formatBytes(bytes: number): string {
   if (bytes <= 0) return ''
@@ -14,6 +15,7 @@ export function TileChrome({ tileId }: { tileId: string }): React.JSX.Element {
   const runtime = useAppStore((s) => s.runtime[tileId])
   const memoryEntry = useAppStore((s) => s.memorySnapshot?.tiles.find((t) => t.tileId === tileId))
   const closeTile = useAppStore((s) => s.closeTile)
+  const drag = useContext(TileDragContext)
 
   const Component = useMemo(() => (tile ? resolveTileComponent(tile) : null), [tile])
 
@@ -23,7 +25,17 @@ export function TileChrome({ tileId }: { tileId: string }): React.JSX.Element {
 
   return (
     <div className="bt-tile" onMouseDownCapture={() => void window.api.tile.focus(tileId)}>
-      <div className="bt-tile__header">
+      <div
+        className={`bt-tile__header${drag.draggingTileId === tileId ? ' bt-tile__header--dragging' : ''}`}
+        draggable
+        title="ドラッグして別のタイルの上下左右（入れ替えは中央）にドロップ"
+        onDragStart={(e) => {
+          e.dataTransfer.setData(TILE_DRAG_MIME, tileId)
+          e.dataTransfer.effectAllowed = 'move'
+          drag.startDrag(tileId)
+        }}
+        onDragEnd={() => drag.endDrag()}
+      >
         <Icon name={tile.icon ?? 'file'} size={13} />
         <span className="bt-tile__title" title={title}>
           {title}

@@ -12,7 +12,11 @@ import {
   resizeAt,
   split,
   splitLeaf,
-  swapTiles
+  swapTiles,
+  moveTile,
+  autoGrid,
+  chooseGridColumns,
+  computeSplitters
 } from './layout'
 
 describe('leaf / split constructors', () => {
@@ -237,5 +241,87 @@ describe('computeRects', () => {
 
   it('returns an empty array for a null tree', () => {
     expect(computeRects(null, { x: 0, y: 0, width: 10, height: 10 })).toEqual([])
+  })
+})
+
+describe('moveTile', () => {
+  const root = split('row', leaf('a'), split('column', leaf('b'), leaf('c')))
+
+  it('swaps on center drop', () => {
+    expect(listTileIds(moveTile(root, 'a', 'c', 'center'))).toEqual(['c', 'b', 'a'])
+  })
+
+  it('moves a tile to the left of the target', () => {
+    const result = moveTile(root, 'c', 'a', 'left')
+    expect(result).toEqual(split('row', split('row', leaf('c'), leaf('a')), leaf('b')))
+  })
+
+  it('moves a tile below the target', () => {
+    const result = moveTile(root, 'a', 'b', 'bottom')
+    expect(result).toEqual(split('column', split('column', leaf('b'), leaf('a')), leaf('c')))
+  })
+
+  it('is a no-op when dropping on itself or on a missing tile', () => {
+    expect(moveTile(root, 'a', 'a', 'left')).toBe(root)
+    expect(moveTile(root, 'a', 'zzz', 'left')).toBe(root)
+  })
+})
+
+describe('chooseGridColumns / autoGrid', () => {
+  // Typical content area: 1400x900 window minus the dock and status bar.
+  const aspect = (1400 - 64) / (900 - 28)
+
+  it('returns null for no tiles', () => {
+    expect(autoGrid([], aspect)).toBeNull()
+  })
+
+  it('uses a single leaf for one tile', () => {
+    expect(autoGrid(['a'], aspect)).toEqual(leaf('a'))
+  })
+
+  it('picks cells close to 16:9: four tiles become 2x2', () => {
+    expect(chooseGridColumns(4, aspect)).toBe(2)
+    const rects = computeRects(autoGrid(['a', 'b', 'c', 'd'], aspect), { x: 0, y: 0, width: 1600, height: 900 })
+    for (const r of rects) {
+      expect(r.rect.width).toBeCloseTo(800)
+      expect(r.rect.height).toBeCloseTo(450)
+    }
+  })
+
+  it('never produces the old "keep halving the last tile" layout for many tiles', () => {
+    const ids = ['a', 'b', 'c', 'd', 'e', 'f']
+    const rects = computeRects(autoGrid(ids, 16 / 9), { x: 0, y: 0, width: 1600, height: 900 })
+    const widths = rects.map((r) => r.rect.width)
+    // All cells equal-ish: the smallest is at least half the largest.
+    expect(Math.min(...widths) / Math.max(...widths)).toBeGreaterThanOrEqual(0.5)
+  })
+
+  it('keeps row lengths within one tile of each other', () => {
+    const tree = autoGrid(['a', 'b', 'c', 'd', 'e'], 16 / 9)
+    const rects = computeRects(tree, { x: 0, y: 0, width: 1600, height: 900 })
+    const rowsByY = new Map<number, number>()
+    for (const r of rects) rowsByY.set(Math.round(r.rect.y), (rowsByY.get(Math.round(r.rect.y)) ?? 0) + 1)
+    const lengths = [...rowsByY.values()]
+    expect(Math.max(...lengths) - Math.min(...lengths)).toBeLessThanOrEqual(1)
+  })
+
+  it('tiles cover the whole area with no gaps', () => {
+    const rects = computeRects(autoGrid(['a', 'b', 'c'], aspect), { x: 0, y: 0, width: 1000, height: 600 })
+    const area = rects.reduce((sum, r) => sum + r.rect.width * r.rect.height, 0)
+    expect(area).toBeCloseTo(600000)
+  })
+})
+
+describe('computeSplitters', () => {
+  it('returns one handle per split, positioned at the ratio boundary', () => {
+    const tree = split('row', leaf('a'), split('column', leaf('b'), leaf('c'), 0.25), 0.4)
+    const handles = computeSplitters(tree, { x: 0, y: 0, width: 1000, height: 800 }, 6)
+    expect(handles).toHaveLength(2)
+    expect(handles[0]).toMatchObject({ path: [], direction: 'row', rect: { x: 397, width: 6, height: 800 } })
+    expect(handles[1]).toMatchObject({ path: ['b'], direction: 'column', rect: { x: 400, y: 197, width: 600 } })
+  })
+
+  it('returns nothing for a single leaf', () => {
+    expect(computeSplitters(leaf('a'), { x: 0, y: 0, width: 10, height: 10 }, 4)).toEqual([])
   })
 })

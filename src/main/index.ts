@@ -12,6 +12,7 @@ import { PluginHost } from './plugins/pluginHost'
 import { PluginHostApiBridge } from './plugins/hostApiBridge'
 import { parseBundle } from './plugins/bundleParser'
 import { installBundledPlugins } from './plugins/bootstrapBundled'
+import { handleId } from './plugins/handleUtil'
 import { registerPluginSchemeAsPrivileged, registerPluginProtocolHandler, pluginAppUrl } from './plugins/protocol'
 import { GoogleCredentialsStore } from './connectors/googleCredentialsStore'
 import { GoogleConnector } from './connectors/google'
@@ -127,6 +128,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.tileSuspend, async (_event, tileId: string) => {
     await viewManager.suspend(tileId)
   })
+  ipcMain.handle('tile:hide', (_event, tileId: string) => viewManager.hide(tileId))
+  ipcMain.handle('tile:navigate', (_event, tileId: string, url: string) => viewManager.navigate(tileId, url))
+  ipcMain.handle('tile:go-back', (_event, tileId: string) => viewManager.goBack(tileId))
+  ipcMain.handle('tile:go-forward', (_event, tileId: string) => viewManager.goForward(tileId))
+  ipcMain.handle('tile:reload', (_event, tileId: string) => viewManager.reload(tileId))
   ipcMain.handle(IPC.tileResume, (_event, tileId: string) => {
     viewManager.resume(tileId)
   })
@@ -141,7 +147,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle('shell:default-shell', () => defaultShell())
 
   ipcMain.handle(IPC.ptyCreate, (_event, tileId: string, opts: { shellId?: string; cwd?: string; cols: number; rows: number }) => {
-    ptyManager.create(tileId, opts)
+    return ptyManager.create(tileId, opts)
   })
   ipcMain.on(IPC.ptyWrite, (_event, tileId: string, data: string) => ptyManager.write(tileId, data))
   ipcMain.on(IPC.ptyResize, (_event, tileId: string, cols: number, rows: number) =>
@@ -230,6 +236,9 @@ function registerIpcHandlers(): void {
     await googleConnector.connect()
     await pollGoogleCards()
   })
+  ipcMain.handle('google:list-events', (_event, timeMinIso: string, timeMaxIso: string) =>
+    googleConnector.listEvents(timeMinIso, timeMaxIso)
+  )
   ipcMain.handle('google:disconnect', () => {
     googleConnector.disconnect()
     for (const id of lastGoogleCardIds) send('hq:card-cleared', id)
@@ -311,13 +320,13 @@ async function callHostApi(pluginId: string, method: string, args: unknown[]): P
     case 'fs.pickFolder':
       return hostApiBridge.pickFolder(pluginId)
     case 'fs.listFiles':
-      return hostApiBridge.listFiles(pluginId, args[0] as string)
+      return hostApiBridge.listFiles(pluginId, handleId(args[0]))
     case 'fs.readFile':
-      return hostApiBridge.readFile(pluginId, args[0] as string, args[1] as string)
+      return hostApiBridge.readFile(pluginId, handleId(args[0]), args[1] as string)
     case 'fs.writeFile':
-      return hostApiBridge.writeFile(pluginId, args[0] as string, args[1] as string, args[2] as string)
+      return hostApiBridge.writeFile(pluginId, handleId(args[0]), args[1] as string, args[2] as string)
     case 'fs.deleteFile':
-      return hostApiBridge.deleteFile(pluginId, args[0] as string, args[1] as string)
+      return hostApiBridge.deleteFile(pluginId, handleId(args[0]), args[1] as string)
     case 'net.fetch':
       return hostApiBridge.netFetch(
         pluginId,
@@ -376,7 +385,7 @@ function startMemoryLoop(): void {
       tiles: [...memByTile.entries()].map(([tileId, memoryBytes]) => ({
         tileId,
         memoryBytes,
-        suspended: memoryBytes === 0,
+        suspended: viewManager.isSuspended(tileId),
         lastActiveAt: Date.now()
       }))
     })
@@ -408,7 +417,8 @@ app.whenReady().then(() => {
   viewManager = new ViewManager({
     getWindow: () => mainWindow,
     onSnapshotUpdated: (tileId, snapshot) => send('tile:snapshot-updated', tileId, snapshot),
-    onTitleUpdated: (tileId, title) => send(IPC.tileTitleUpdated, tileId, title)
+    onTitleUpdated: (tileId, title) => send(IPC.tileTitleUpdated, tileId, title),
+    onNavigated: (tileId, state) => send('tile:navigated', tileId, state)
   })
   ptyManager = new PtyManager({
     onData: (tileId, data) => send(IPC.ptyData, tileId, data),

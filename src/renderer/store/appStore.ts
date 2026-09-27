@@ -1,14 +1,6 @@
 import { create } from 'zustand'
-import type {
-  AppConfig,
-  Card,
-  LayoutNode,
-  SplitDirection,
-  SystemMemorySnapshot,
-  TileInstance,
-  Workspace
-} from '@shared/types'
-import { removeTile, resizeAt, splitLeaf, type NodePath, type SplitPosition } from '../tiling/layout'
+import type { AppConfig, Card, SystemMemorySnapshot, TileInstance, Workspace } from '@shared/types'
+import { autoGrid, listTileIds, moveTile, resizeAt, type DropZone, type NodePath } from '../tiling/layout'
 
 export interface TileRuntimeState {
   titleOverride?: string
@@ -25,18 +17,22 @@ interface AppState {
   paletteOpen: boolean
   memorySnapshot: SystemMemorySnapshot | null
   hqCards: Card[]
+  /** Width / height of the tiling area, kept current by TilingView; drives the auto grid. */
+  viewportAspect: number
 
   load: () => Promise<void>
   switchWorkspace: (workspaceId: string) => void
   createWorkspace: (name: string, icon: string) => string
   deleteWorkspace: (workspaceId: string) => void
 
-  addTile: (
-    tile: Omit<TileInstance, 'id'>,
-    opts?: { splitTargetTileId?: string; direction?: SplitDirection; position?: SplitPosition; ratio?: number }
-  ) => string
+  /** Add a tile and re-flow the workspace into a grid of roughly 16:9 cells. */
+  addTile: (tile: Omit<TileInstance, 'id'>) => string
   closeTile: (tileId: string) => void
   resizeSplitAt: (path: NodePath, ratio: number) => void
+  moveTileTo: (tileId: string, targetTileId: string, zone: DropZone) => void
+  setViewportAspect: (aspect: number) => void
+  /** Shallow-merge into the app config, in memory and on disk. */
+  updateConfig: (patch: Partial<AppConfig>) => void
 
   setTileRuntime: (tileId: string, patch: Partial<TileRuntimeState>) => void
   setPaletteOpen: (open: boolean) => void
@@ -76,6 +72,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   paletteOpen: false,
   memorySnapshot: null,
   hqCards: [],
+  viewportAspect: 16 / 9,
 
   load: async () => {
     const config = await window.api.config.get()
@@ -116,22 +113,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     persist(next)
   },
 
-  addTile: (tile, opts = {}) => {
-    const { config } = get()
+  addTile: (tile) => {
+    const { config, viewportAspect } = get()
     if (!config) return ''
     const ws = activeWorkspace(get())
     if (!ws) return ''
 
     const id = genId('tile')
     const instance: TileInstance = { ...tile, id }
-
-    let layout: LayoutNode
-    if (ws.layout === null) {
-      layout = { type: 'leaf', tileId: id }
-    } else {
-      const targetId = opts.splitTargetTileId ?? lastLeafId(ws.layout)
-      layout = splitLeaf(ws.layout, targetId, id, opts.direction ?? 'row', opts.position ?? 'after', opts.ratio ?? 0.5)
-    }
+    const layout = autoGrid([...listTileIds(ws.layout), id], viewportAspect)
 
     const next = updateWorkspace(config, ws.id, (w) => ({
       ...w,
@@ -149,7 +139,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     const ws = activeWorkspace(get())
     if (!ws) return
 
-    const layout = removeTile(ws.layout, tileId)
+    const layout = autoGrid(
+      listTileIds(ws.layout).filter((id) => id !== tileId),
+      get().viewportAspect
+    )
     const tiles = { ...ws.tiles }
     delete tiles[tileId]
     const next = updateWorkspace(config, ws.id, (w) => ({ ...w, layout, tiles }))
@@ -173,6 +166,29 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = updateWorkspace(config, ws.id, (w) => ({ ...w, layout }))
     set({ config: next })
     persist(next)
+  },
+
+  moveTileTo: (tileId, targetTileId, zone) => {
+    const { config } = get()
+    if (!config) return
+    const ws = activeWorkspace(get())
+    if (!ws) return
+    const layout = moveTile(ws.layout, tileId, targetTileId, zone)
+    if (layout === ws.layout) return
+    const next = updateWorkspace(config, ws.id, (w) => ({ ...w, layout }))
+    set({ config: next })
+    persist(next)
+  },
+
+  setViewportAspect: (aspect) => {
+    if (Number.isFinite(aspect) && aspect > 0) set({ viewportAspect: aspect })
+  },
+
+  updateConfig: (patch) => {
+    const { config } = get()
+    if (!config) return
+    set({ config: { ...config, ...patch } })
+    void window.api.config.set(patch)
   },
 
   setTileRuntime: (tileId, patch) => {
@@ -211,9 +227,4 @@ function priorityRank(p: Card['priority']): number {
 
 export function selectActiveWorkspace(state: AppState): Workspace | null {
   return activeWorkspace(state)
-}
-
-function lastLeafId(node: LayoutNode): string {
-  if (node.type === 'leaf') return node.tileId
-  return lastLeafId(node.b)
 }

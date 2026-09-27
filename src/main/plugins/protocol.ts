@@ -54,6 +54,8 @@ export function registerPluginProtocolHandler(pluginHost: PluginHost): void {
       return new Response('forbidden', { status: 403 })
     }
     if (!existsSync(targetPath)) {
+      // AGENTS.md promises plugins a `tokens.css` they can <link> without shipping it.
+      if (relativePath === 'tokens.css') return serveFile(TOKENS_CSS_PATH_ON_DISK, 'text/css')
       return new Response('not found', { status: 404 })
     }
 

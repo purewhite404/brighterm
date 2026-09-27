@@ -3,6 +3,8 @@ import type { SettingsShortcut } from '../../main/settingsShortcuts'
 import type { EtcFileDescriptor, DiffOp, HistoryEntry } from '../../main/etc/etcService'
 import type { ExecResult } from '../../main/etc/validators'
 import { Icon } from '../ui/Icon'
+import { useAppStore } from '../store/appStore'
+import { MAIL_PROVIDERS, SEARCH_ENGINES, type SearchEngineId } from '@shared/types'
 
 function OsShortcutList(): React.JSX.Element {
   const [shortcuts, setShortcuts] = useState<SettingsShortcut[]>([])
@@ -15,10 +17,65 @@ function OsShortcutList(): React.JSX.Element {
     <div className="bt-settings__grid">
       {shortcuts.map((s) => (
         <button key={s.id} className="bt-settings__shortcut" onClick={() => window.api.settings.openShortcut(s.id)}>
-          <Icon name="settings" size={18} />
+          <Icon name={s.icon} size={18} />
           <span>{s.label}</span>
         </button>
       ))}
+    </div>
+  )
+}
+
+/** Brighterm's own preferences: which mail service the Mail tile opens, which search engine the Browser uses. */
+function AppPreferences(): React.JSX.Element | null {
+  const config = useAppStore((s) => s.config)
+  const updateConfig = useAppStore((s) => s.updateConfig)
+  const [customUrl, setCustomUrl] = useState(config?.mail.customUrl ?? '')
+  if (!config) return null
+
+  return (
+    <div className="bt-settings__prefs">
+      <div className="bt-etc__title">Brighterm の設定</div>
+      <label className="bt-settings__field">
+        <span>メール</span>
+        <select
+          value={config.mail.provider}
+          onChange={(e) => updateConfig({ mail: { ...config.mail, provider: e.target.value } })}
+        >
+          {MAIL_PROVIDERS.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+          <option value="custom">その他（URL を指定）</option>
+        </select>
+      </label>
+      {config.mail.provider === 'custom' && (
+        <label className="bt-settings__field">
+          <span>メールの URL</span>
+          <input
+            value={customUrl}
+            placeholder="https://mail.example.jp/"
+            onChange={(e) => setCustomUrl(e.target.value)}
+            onBlur={() => updateConfig({ mail: { ...config.mail, customUrl: customUrl.trim() } })}
+          />
+        </label>
+      )}
+      <label className="bt-settings__field">
+        <span>検索エンジン</span>
+        <select
+          value={config.search.engine}
+          onChange={(e) => updateConfig({ search: { ...config.search, engine: e.target.value as SearchEngineId } })}
+        >
+          {(Object.keys(SEARCH_ENGINES) as SearchEngineId[]).map((id) => (
+            <option key={id} value={id}>
+              {SEARCH_ENGINES[id].label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <div className="bt-text-muted" style={{ fontSize: 12 }}>
+        カレンダーの Google 連携は、Calendar タイルの右上から設定できます。
+      </div>
     </div>
   )
 }
@@ -189,6 +246,10 @@ export function SettingsTile(): React.JSX.Element {
 
   return (
     <div className="bt-tile-body bt-settings">
+      <AppPreferences />
+      <div className="bt-etc__title" style={{ marginTop: 16 }}>
+        {showEtcEditor ? 'システム設定ファイル' : 'OS の設定'}
+      </div>
       {showEtcEditor ? <EtcEditor /> : <OsShortcutList />}
     </div>
   )

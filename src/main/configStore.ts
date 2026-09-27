@@ -23,37 +23,31 @@ function defaultConfig(): AppConfig {
       }
     ],
     activeWorkspaceId: 'home',
-    webTileDefinitions: [
-      {
-        id: 'mail',
-        title: 'Mail',
-        icon: 'mail',
-        url: 'https://mail.google.com/mail/u/0/',
-        partitionId: 'google'
-      },
-      {
-        id: 'calendar',
-        title: 'Calendar',
-        icon: 'calendar',
-        url: 'https://calendar.google.com/calendar/u/0/r',
-        partitionId: 'google'
-      },
-      {
-        id: 'browser',
-        title: 'Browser',
-        icon: 'browser',
-        url: 'https://www.google.com',
-        partitionId: 'browser'
-      }
-    ],
+    // Mail / Browser / Calendar are built-in tiles configured below; this
+    // list is for extra user-defined web tiles.
+    webTileDefinitions: [],
     memoryBudgetBytes: 1.5 * 1024 * 1024 * 1024,
     suspendAfterMs: 10 * 60 * 1000,
+    mail: { provider: 'gmail' },
+    search: { engine: 'duckduckgo' },
+    calendar: { source: 'none' },
     aiBuilder: {
       mode: 'web-bridge',
       webBridgeUrl: 'https://chatgpt.com/',
       apiProvider: 'openai',
       apiModel: 'gpt-5.1'
     }
+  }
+}
+
+/** IDs of web tile definitions older versions shipped, now built-in tiles. */
+const LEGACY_WEB_TILE_IDS = new Set(['mail', 'calendar', 'browser'])
+
+/** Brings a config written by an older version up to the current shape. */
+export function migrate(config: AppConfig): AppConfig {
+  return {
+    ...config,
+    webTileDefinitions: config.webTileDefinitions.filter((d) => !LEGACY_WEB_TILE_IDS.has(d.id))
   }
 }
 
@@ -78,8 +72,7 @@ export class ConfigStore {
     try {
       const raw = readFileSync(this.filePath, 'utf-8')
       const parsed = JSON.parse(raw) as Partial<AppConfig>
-      // Merge with defaults so new fields introduced by app updates get sane values.
-      return { ...defaultConfig(), ...parsed }
+      return migrate({ ...defaultConfig(), ...parsed })
     } catch (err) {
       console.error('[ConfigStore] failed to read config.json, falling back to defaults:', err)
       return defaultConfig()

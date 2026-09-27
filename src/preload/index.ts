@@ -8,6 +8,7 @@ import type { EtcFileDescriptor, DiffOp, HistoryEntry, AugeasNode } from '../mai
 import type { ExecResult } from '../main/etc/validators'
 import type { PluginListItem, PluginInstallResult } from '../main/plugins/pluginHost'
 import type { Card } from '@shared/types'
+import type { CalendarEvent } from '../main/connectors/google'
 
 /**
  * The only surface the renderer sees. contextIsolation is on, so this is the
@@ -28,6 +29,17 @@ const api = {
     focus: (tileId: string) => ipcRenderer.invoke(IPC.tileFocus, tileId),
     suspend: (tileId: string) => ipcRenderer.invoke(IPC.tileSuspend, tileId),
     resume: (tileId: string) => ipcRenderer.invoke(IPC.tileResume, tileId),
+    hide: (tileId: string) => ipcRenderer.invoke('tile:hide', tileId),
+    navigate: (tileId: string, url: string) => ipcRenderer.invoke('tile:navigate', tileId, url),
+    goBack: (tileId: string) => ipcRenderer.invoke('tile:go-back', tileId),
+    goForward: (tileId: string) => ipcRenderer.invoke('tile:go-forward', tileId),
+    reload: (tileId: string) => ipcRenderer.invoke('tile:reload', tileId),
+    onNavigated: (cb: (tileId: string, state: { url: string; canGoBack: boolean; canGoForward: boolean }) => void) => {
+      const listener = (_e: unknown, tileId: string, state: { url: string; canGoBack: boolean; canGoForward: boolean }) =>
+        cb(tileId, state)
+      ipcRenderer.on('tile:navigated', listener)
+      return () => { ipcRenderer.removeListener('tile:navigated', listener) }
+    },
     onTitleUpdated: (cb: (tileId: string, title: string) => void) => {
       const listener = (_e: unknown, tileId: string, title: string) => cb(tileId, title)
       ipcRenderer.on(IPC.tileTitleUpdated, listener)
@@ -62,8 +74,10 @@ const api = {
   },
 
   pty: {
-    create: (tileId: string, opts: { shellId?: string; cwd?: string; cols: number; rows: number }) =>
-      ipcRenderer.invoke(IPC.ptyCreate, tileId, opts),
+    create: (
+      tileId: string,
+      opts: { shellId?: string; cwd?: string; cols: number; rows: number }
+    ): Promise<{ backlog: string }> => ipcRenderer.invoke(IPC.ptyCreate, tileId, opts),
     write: (tileId: string, data: string) => ipcRenderer.send(IPC.ptyWrite, tileId, data),
     resize: (tileId: string, cols: number, rows: number) => ipcRenderer.send(IPC.ptyResize, tileId, cols, rows),
     kill: (tileId: string) => ipcRenderer.invoke(IPC.ptyKill, tileId),
@@ -167,7 +181,9 @@ const api = {
     setClientCredentials: (clientId: string, clientSecret: string): Promise<void> =>
       ipcRenderer.invoke('google:set-client-credentials', clientId, clientSecret),
     connect: (): Promise<void> => ipcRenderer.invoke('google:connect'),
-    disconnect: (): Promise<void> => ipcRenderer.invoke('google:disconnect')
+    disconnect: (): Promise<void> => ipcRenderer.invoke('google:disconnect'),
+    listEvents: (timeMinIso: string, timeMaxIso: string): Promise<CalendarEvent[]> =>
+      ipcRenderer.invoke('google:list-events', timeMinIso, timeMaxIso)
   },
 
   hq: {

@@ -80,10 +80,7 @@ export function FileExplorerTile({ tileId }: { tileId: string }): React.JSX.Elem
   }, [])
 
   const openTerminalHere = (path: string): void => {
-    addTile(
-      { kind: 'builtin', typeId: 'terminal', title: 'Terminal', icon: 'terminal', config: { cwd: path } },
-      { splitTargetTileId: tileId, direction: 'row' }
-    )
+    addTile({ kind: 'builtin', typeId: 'terminal', title: 'Terminal', icon: 'terminal', config: { cwd: path } })
   }
 
   if (!root) return <div className="bt-tile-body bt-tile-body--centered">読み込み中…</div>

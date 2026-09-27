@@ -7,6 +7,9 @@ import { HqTile } from './HqTile'
 import { AiBuilderTile } from './AiBuilderTile'
 import { SettingsTile } from './SettingsTile'
 import { PluginFrame } from './PluginFrame'
+import { MailTile } from './MailTile'
+import { BrowserTile } from './BrowserTile'
+import { CalendarTile } from './CalendarTile'
 
 export interface BuiltinTileDef {
   title: string
@@ -18,9 +21,9 @@ export interface BuiltinTileDef {
 
 export const BUILTIN_TILE_DEFS: Record<BuiltinTileType, BuiltinTileDef> = {
   terminal: { title: 'Terminal', icon: 'terminal', dockVisible: true, Component: TerminalTile },
-  browser: { title: 'Browser', icon: 'browser', dockVisible: false, Component: WebTile },
-  mail: { title: 'Mail', icon: 'mail', dockVisible: false, Component: WebTile },
-  calendar: { title: 'Calendar', icon: 'calendar', dockVisible: false, Component: WebTile },
+  browser: { title: 'Browser', icon: 'browser', dockVisible: true, Component: BrowserTile },
+  mail: { title: 'Mail', icon: 'mail', dockVisible: true, Component: MailTile },
+  calendar: { title: 'Calendar', icon: 'calendar', dockVisible: true, Component: CalendarTile },
   'file-explorer': { title: 'Files', icon: 'folder', dockVisible: true, Component: FileExplorerTile },
   sysmon: { title: 'System Monitor', icon: 'activity', dockVisible: true, Component: SysMonTile },
   'ai-builder': { title: 'AI Builder', icon: 'sparkles', dockVisible: true, Component: AiBuilderTile },

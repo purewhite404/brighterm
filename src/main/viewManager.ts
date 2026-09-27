@@ -23,13 +23,23 @@ interface ManagedView {
   /** data: URL PNG snapshot shown in the renderer while suspended or hidden behind an overlay. */
   snapshot: string | null
   compactCss?: string
-  onTitleUpdated?: (title: string) => void
+  /** True while no tile on screen is showing this view (e.g. its workspace isn't active). */
+  hidden: boolean
+  /** When it became hidden — suspension only ever targets views hidden for a while. */
+  hiddenSince: number
 }
 
 export interface ViewManagerOptions {
   getWindow: () => BaseWindow | null
   onSnapshotUpdated?: (tileId: string, snapshot: string | null) => void
   onTitleUpdated?: (tileId: string, title: string) => void
+  onNavigated?: (tileId: string, state: NavigationState) => void
+}
+
+export interface NavigationState {
+  url: string
+  canGoBack: boolean
+  canGoForward: boolean
 }
 
 /** Strip the Electron/x.y.z token so Google (and others) don't block the embedded login flow. */
@@ -53,8 +63,19 @@ export class ViewManager {
     return this.views.has(tileId)
   }
 
+  /**
+   * Idempotent: a tile component calls this every time it mounts (React may
+   * mount twice in dev, and a tile remounts when its workspace is shown
+   * again). An existing view is un-hidden, and resumed if it was suspended.
+   */
   create(tileId: string, url: string, partitionId: string, compactCss?: string): void {
-    if (this.views.has(tileId)) return
+    const existing = this.views.get(tileId)
+    if (existing) {
+      existing.hidden = false
+      existing.lastActiveAt = Date.now()
+      if (existing.suspended) this.mountView(existing)
+      return
+    }
     const entry: ManagedView = {
       tileId,
       url,
@@ -64,7 +85,9 @@ export class ViewManager {
       lastActiveAt: Date.now(),
       lastBounds: null,
       snapshot: null,
-      compactCss
+      compactCss,
+      hidden: false,
+      hiddenSince: 0
     }
     this.views.set(tileId, entry)
     this.mountView(entry)
@@ -89,8 +112,25 @@ export class ViewManager {
     view.webContents.setUserAgent(ua)
 
     view.webContents.on('page-title-updated', (_event, title) => {
-      entry.onTitleUpdated?.(title)
       this.options.onTitleUpdated?.(entry.tileId, title)
+    })
+
+    const reportNavigation = (): void => {
+      const history = view.webContents.navigationHistory
+      entry.url = view.webContents.getURL() || entry.url
+      this.options.onNavigated?.(entry.tileId, {
+        url: entry.url,
+        canGoBack: history.canGoBack(),
+        canGoForward: history.canGoForward()
+      })
+    }
+    view.webContents.on('did-navigate', reportNavigation)
+    view.webContents.on('did-navigate-in-page', reportNavigation)
+
+    // Links that try to open a new window load in the same tile instead.
+    view.webContents.setWindowOpenHandler(({ url }) => {
+      void view.webContents.loadURL(url)
+      return { action: 'deny' }
     })
 
     if (entry.compactCss) {
@@ -109,7 +149,7 @@ export class ViewManager {
     entry.view = view
     entry.suspended = false
     entry.lastActiveAt = Date.now()
-    if (entry.lastBounds) {
+    if (entry.lastBounds && !entry.hidden) {
       view.setBounds(toIntRect(entry.lastBounds))
     } else {
       view.setBounds({ x: 0, y: 0, width: 0, height: 0 })
@@ -120,9 +160,42 @@ export class ViewManager {
     const entry = this.views.get(tileId)
     if (!entry) return
     entry.lastBounds = rect
+    entry.hidden = false
     if (entry.view) {
       entry.view.setBounds(toIntRect(rect))
     }
+  }
+
+  /** The tile showing this view went away (workspace switched, etc.) — keep the page alive but off screen. */
+  hide(tileId: string): void {
+    const entry = this.views.get(tileId)
+    if (!entry || entry.hidden) return
+    entry.hidden = true
+    entry.hiddenSince = Date.now()
+    entry.view?.setBounds({ x: 0, y: 0, width: 0, height: 0 })
+  }
+
+  navigate(tileId: string, url: string): void {
+    const entry = this.views.get(tileId)
+    if (!entry) return
+    entry.url = url
+    void entry.view?.webContents.loadURL(url).catch(() => {
+      /* failed navigations surface as an error page in the view itself */
+    })
+  }
+
+  goBack(tileId: string): void {
+    const history = this.views.get(tileId)?.view?.webContents.navigationHistory
+    if (history?.canGoBack()) history.goBack()
+  }
+
+  goForward(tileId: string): void {
+    const history = this.views.get(tileId)?.view?.webContents.navigationHistory
+    if (history?.canGoForward()) history.goForward()
+  }
+
+  reload(tileId: string): void {
+    this.views.get(tileId)?.view?.webContents.reload()
   }
 
   markActive(tileId: string): void {
@@ -130,11 +203,13 @@ export class ViewManager {
     if (entry) entry.lastActiveAt = Date.now()
   }
 
+  /** Destroys the tile's view and any sub-views it owns (ids of the form "<tileId>::<name>"). */
   async close(tileId: string): Promise<void> {
-    const entry = this.views.get(tileId)
-    if (!entry) return
-    this.detachAndDestroy(entry)
-    this.views.delete(tileId)
+    for (const [id, entry] of [...this.views.entries()]) {
+      if (id !== tileId && !id.startsWith(`${tileId}::`)) continue
+      this.detachAndDestroy(entry)
+      this.views.delete(id)
+    }
   }
 
   /** Capture a snapshot and free the WebContents; keeps enough state to resume() later. */
@@ -179,7 +254,7 @@ export class ViewManager {
   /** Hide every mounted view behind a snapshot, e.g. while the command palette is open. */
   async hideAllForOverlay(): Promise<void> {
     for (const entry of this.views.values()) {
-      if (!entry.view || entry.suspended) continue
+      if (!entry.view || entry.suspended || entry.hidden) continue
       try {
         const image = await entry.view.webContents.capturePage()
         entry.snapshot = image.toDataURL()
@@ -193,20 +268,28 @@ export class ViewManager {
 
   showAllAfterOverlay(): void {
     for (const entry of this.views.values()) {
-      if (!entry.view || entry.suspended || !entry.lastBounds) continue
+      if (!entry.view || entry.suspended || entry.hidden || !entry.lastBounds) continue
       entry.view.setBounds(toIntRect(entry.lastBounds))
       entry.snapshot = null
       this.options.onSnapshotUpdated?.(entry.tileId, null)
     }
   }
 
-  /** Tiles inactive longer than `maxIdleMs`, oldest first — candidates for suspension. */
-  getSuspendCandidates(maxIdleMs: number): string[] {
+  /**
+   * Views that have been off screen longer than `maxHiddenMs`, longest-hidden
+   * first. A tile you can see is never suspended, however long since you
+   * last clicked it.
+   */
+  getSuspendCandidates(maxHiddenMs: number): string[] {
     const now = Date.now()
     return [...this.views.values()]
-      .filter((e) => !e.suspended && now - e.lastActiveAt > maxIdleMs)
-      .sort((a, b) => a.lastActiveAt - b.lastActiveAt)
+      .filter((e) => !e.suspended && e.hidden && now - e.hiddenSince > maxHiddenMs)
+      .sort((a, b) => a.hiddenSince - b.hiddenSince)
       .map((e) => e.tileId)
+  }
+
+  isSuspended(tileId: string): boolean {
+    return this.views.get(tileId)?.suspended ?? false
   }
 
   async getMemoryByTile(): Promise<Map<string, number>> {

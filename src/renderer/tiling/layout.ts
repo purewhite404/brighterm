@@ -1,4 +1,6 @@
-import type { LayoutLeaf, LayoutNode, LayoutSplit, SplitDirection } from '@shared/types'
+import type { LayoutLeaf, LayoutNode, LayoutSplit, Rect, SplitDirection } from '@shared/types'
+
+export type { Rect }
 
 /**
  * Pure functions over the tiling layout tree. No React, no IPC — this file is
@@ -174,6 +176,124 @@ export function swapTiles(root: LayoutNode | null, tileIdA: string, tileIdB: str
   return walk(root)
 }
 
+/** Where a dragged tile was dropped relative to the target tile. */
+export type DropZone = 'left' | 'right' | 'top' | 'bottom' | 'center'
+
+/**
+ * Move `tileId` next to `targetTileId`. 'center' swaps the two tiles; an
+ * edge zone removes the tile from where it was and splits the target on
+ * that side.
+ */
+export function moveTile(
+  root: LayoutNode | null,
+  tileId: string,
+  targetTileId: string,
+  zone: DropZone
+): LayoutNode | null {
+  if (root === null || tileId === targetTileId) return root
+  if (!containsTile(root, tileId) || !containsTile(root, targetTileId)) return root
+  if (zone === 'center') return swapTiles(root, tileId, targetTileId)
+
+  const without = removeTile(root, tileId)
+  const direction: SplitDirection = zone === 'left' || zone === 'right' ? 'row' : 'column'
+  const position: SplitPosition = zone === 'left' || zone === 'top' ? 'before' : 'after'
+  return splitLeaf(without, targetTileId, tileId, direction, position)
+}
+
+/** Cell aspect ratio the auto layout aims for. */
+export const TARGET_CELL_ASPECT = 16 / 9
+
+/** Equal-sized chain: n nodes along one axis, each getting 1/n of the space. */
+function equalChain(nodes: LayoutNode[], direction: SplitDirection): LayoutNode {
+  if (nodes.length === 1) return nodes[0]
+  const [first, ...rest] = nodes
+  return split(direction, first, equalChain(rest, direction), 1 / nodes.length)
+}
+
+/**
+ * Choose a column count so each cell is as close to 16:9 as possible for a
+ * container of the given aspect ratio (width / height).
+ */
+export function chooseGridColumns(count: number, containerAspect: number): number {
+  let best = 1
+  let bestScore = Infinity
+  for (let cols = 1; cols <= count; cols++) {
+    const rows = Math.ceil(count / cols)
+    const cellAspect = (containerAspect * rows) / cols
+    const emptyCells = rows * cols - count
+    const score = Math.abs(Math.log(cellAspect / TARGET_CELL_ASPECT)) + 0.1 * emptyCells
+    if (score < bestScore - 1e-9) {
+      best = cols
+      bestScore = score
+    }
+  }
+  return best
+}
+
+/**
+ * Lay the tiles out as a grid whose cells are close to 16:9. Rows differ in
+ * length by at most one tile; tiles in a shorter row are simply wider.
+ */
+export function autoGrid(tileIds: string[], containerAspect: number): LayoutNode | null {
+  const count = tileIds.length
+  if (count === 0) return null
+  const cols = chooseGridColumns(count, containerAspect)
+  const rowCount = Math.ceil(count / cols)
+
+  const rows: LayoutNode[] = []
+  let index = 0
+  for (let r = 0; r < rowCount; r++) {
+    // Spread the remainder over the first rows so row lengths differ by at most one.
+    const remainingRows = rowCount - r
+    const inThisRow = Math.ceil((count - index) / remainingRows)
+    const ids = tileIds.slice(index, index + inThisRow)
+    index += inThisRow
+    rows.push(equalChain(ids.map(leaf), 'row'))
+  }
+  return equalChain(rows, 'column')
+}
+
+export interface SplitterRect {
+  path: NodePath
+  direction: SplitDirection
+  /** Where the draggable handle sits. */
+  rect: Rect
+  /** The split's full area, used to turn a pointer position into a ratio. */
+  parent: Rect
+}
+
+/** Every split's handle position, for rendering resize handles over a flat tile layer. */
+export function computeSplitters(node: LayoutNode | null, rect: Rect, thickness: number, path: NodePath = []): SplitterRect[] {
+  if (node === null || node.type === 'leaf') return []
+  const result: SplitterRect[] = []
+  if (node.direction === 'row') {
+    const aWidth = rect.width * node.ratio
+    result.push({
+      path,
+      direction: 'row',
+      parent: rect,
+      rect: { x: rect.x + aWidth - thickness / 2, y: rect.y, width: thickness, height: rect.height }
+    })
+    result.push(...computeSplitters(node.a, { ...rect, width: aWidth }, thickness, [...path, 'a']))
+    result.push(
+      ...computeSplitters(node.b, { ...rect, x: rect.x + aWidth, width: rect.width - aWidth }, thickness, [...path, 'b'])
+    )
+  } else {
+    const aHeight = rect.height * node.ratio
+    result.push({
+      path,
+      direction: 'column',
+      parent: rect,
+      rect: { x: rect.x, y: rect.y + aHeight - thickness / 2, width: rect.width, height: thickness }
+    })
+    result.push(...computeSplitters(node.a, { ...rect, height: aHeight }, thickness, [...path, 'a']))
+    result.push(
+      ...computeSplitters(node.b, { ...rect, y: rect.y + aHeight, height: rect.height - aHeight }, thickness, [...path, 'b'])
+    )
+  }
+  return result
+}
+
 /** Count how many leaves are in the tree. */
 export function countTiles(node: LayoutNode | null): number {
   if (node === null) return 0
@@ -185,13 +305,6 @@ export function countTiles(node: LayoutNode | null): number {
  * Compute pixel/percentage rectangles for every leaf, given a root rectangle.
  * Used by the renderer to size the placeholder divs that WebContentsView tracks.
  */
-export interface Rect {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
 export interface TileRect {
   tileId: string
   rect: Rect

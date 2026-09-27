@@ -1,43 +1,19 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import { buildAddTilePrompt, buildFixPrompt, copyToClipboard } from '../ai/promptBuilder'
 import type { PluginInstallResult } from '../../main/plugins/pluginHost'
 import { Icon } from '../ui/Icon'
+import { useEmbeddedWebView } from './useEmbeddedWebView'
 
-/**
- * A standalone embedded web view for the AI Builder's chat side. Unlike
- * WebTile, this isn't a tile registered in a workspace layout — it's a
- * fixed sub-view owned entirely by this component, keyed by its own
- * synthetic id so it survives independently of the surrounding tile.
- */
-function EmbeddedChat({ subTileId, url }: { subTileId: string; url: string }): React.JSX.Element {
-  const containerRef = useRef<HTMLDivElement | null>(null)
-  const created = useRef(false)
-
-  useEffect(() => {
-    if (created.current) return
-    created.current = true
-    void window.api.tile.create({ tileId: subTileId, kind: 'web', url, partitionId: 'ai-builder-chat' })
-    return () => {
-      void window.api.tile.close(subTileId)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  useEffect(() => {
-    const el = containerRef.current
-    if (!el) return
-    const report = (): void => {
-      const rect = el.getBoundingClientRect()
-      void window.api.tile.setBounds(subTileId, { x: rect.x, y: rect.y, width: rect.width, height: rect.height })
-    }
-    const observer = new ResizeObserver(report)
-    observer.observe(el)
-    report()
-    return () => observer.disconnect()
-  }, [subTileId])
-
-  return <div ref={containerRef} className="bt-web-tile" />
+/** The chat side: a sub-view of this tile ("<tileId>::chat"), destroyed along with it. */
+function EmbeddedChat({ viewId, url }: { viewId: string; url: string }): React.JSX.Element {
+  const snapshot = useAppStore((s) => s.runtime[viewId]?.snapshot)
+  const ref = useEmbeddedWebView(viewId, { url, partitionId: 'ai-builder-chat' })
+  return (
+    <div ref={ref} className="bt-web-tile">
+      {snapshot && <img src={snapshot} alt="" className="bt-web-tile__snapshot" draggable={false} />}
+    </div>
+  )
 }
 
 type AgentEvent =
@@ -215,8 +191,9 @@ function ExportKitButton(): React.JSX.Element {
   )
 }
 
-export function AiBuilderTile(): React.JSX.Element {
+export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element {
   const config = useAppStore((s) => s.config)
+  const updateConfig = useAppStore((s) => s.updateConfig)
   const [request, setRequest] = useState('')
   const [bundleText, setBundleText] = useState('')
   const [validation, setValidation] = useState<PluginInstallResult | null>(null)
@@ -227,7 +204,8 @@ export function AiBuilderTile(): React.JSX.Element {
   const chatUrl = config?.aiBuilder.webBridgeUrl ?? 'https://chatgpt.com/'
 
   const setMode = (next: 'web-bridge' | 'api-agent'): void => {
-    void window.api.config.set({ aiBuilder: { ...config!.aiBuilder, mode: next } })
+    if (!config) return
+    updateConfig({ aiBuilder: { ...config.aiBuilder, mode: next } })
   }
 
   const preparePrompt = async (): Promise<void> => {
@@ -293,7 +271,7 @@ export function AiBuilderTile(): React.JSX.Element {
       {modeToggle}
       <div style={{ display: 'flex', flex: 1, minHeight: 0 }}>
         <div className="bt-ai-builder__chat">
-          <EmbeddedChat subTileId="ai-builder-chat" url={chatUrl} />
+          <EmbeddedChat viewId={`${tileId}::chat`} url={chatUrl} />
         </div>
         <div className="bt-ai-builder__panel">
         <div>

@@ -30,7 +30,22 @@ const PATHS: Record<string, string> = {
   trash: 'M5 7h14 M9 7V5h6v2 M7 7l1 13h8l1-13',
   power: 'M12 3v8 M6.5 6.5a7 7 0 1011 0',
   slack: 'M9 3a2 2 0 100 4h2V5a2 2 0 00-2-2z M15 21a2 2 0 100-4h-2v2a2 2 0 002 2z M5 9a2 2 0 100 4v-2a2 2 0 00-2-2z M19 15a2 2 0 100-4v2a2 2 0 002 2z',
-  note: 'M6 3h9l3 3v15H6z M15 3v4h4 M9 12h6 M9 16h6'
+  note: 'M6 3h9l3 3v15H6z M15 3v4h4 M9 12h6 M9 16h6',
+  wifi: 'M2 9a15 15 0 0120 0 M5 12.5a10 10 0 0114 0 M8.5 16a5 5 0 017 0 M12 19.5v0.01',
+  bluetooth: 'M7 7l10 10-5 4V3l5 4L7 17',
+  monitor: 'M3 4h18v12H3z M8 20h8 M12 16v4',
+  palette:
+    'M12 3a9 9 0 100 18c1.1 0 1.5-.8 1.5-1.5 0-.4-.2-.8-.4-1.1-.3-.3-.4-.7-.4-1.1 0-.8.7-1.5 1.5-1.5H16a5 5 0 005-5c0-4.1-4-7.8-9-7.8z M7.5 11v0.01 M10 7.5v0.01 M14.5 7.5v0.01 M17 11v0.01',
+  grid: 'M4 4h6v6H4z M14 4h6v6h-6z M4 14h6v6H4z M14 14h6v6h-6z',
+  user: 'M12 12a4 4 0 100-8 4 4 0 000 8z M4 21a8 8 0 0116 0',
+  users: 'M9 11a4 4 0 100-8 4 4 0 000 8z M2 21a7 7 0 0114 0 M16 3.5a4 4 0 010 7.5 M18 14a6 6 0 014 7',
+  shield: 'M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z M9 12l2 2 4-4',
+  download: 'M12 4v12 M7 11l5 5 5-5 M5 20h14',
+  'arrow-left': 'M19 12H5 M11 6l-6 6 6 6',
+  'arrow-right': 'M5 12h14 M13 6l6 6-6 6',
+  'chevron-left': 'M15 6l-6 6 6 6',
+  image: 'M4 5h16v14H4z M4 16l5-5 4 4 3-3 4 4 M15.5 9.5v0.01',
+  search: 'M11 18a7 7 0 100-14 7 7 0 000 14z M20 20l-4-4'
 }
 
 export function Icon({

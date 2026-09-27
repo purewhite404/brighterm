@@ -17,6 +17,16 @@ import type { Card } from '@shared/types'
  * no test Google Cloud project/credentials available to verify against.
  */
 
+export interface CalendarEvent {
+  id: string
+  title: string
+  /** ISO date-time, or YYYY-MM-DD for all-day events. */
+  start: string
+  end: string
+  allDay: boolean
+  url?: string
+}
+
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/gmail.readonly'
@@ -113,6 +123,35 @@ export class GoogleConnector {
     const client = new google.auth.OAuth2(creds.clientId, creds.clientSecret)
     client.setCredentials({ refresh_token: creds.refreshToken })
     return client
+  }
+
+  /** Events on the primary calendar between two instants, for the built-in Calendar tile. */
+  async listEvents(timeMinIso: string, timeMaxIso: string): Promise<CalendarEvent[]> {
+    const auth = this.authClient()
+    if (!auth) return []
+    const calendar = google.calendar({ version: 'v3', auth })
+    const res = await calendar.events.list({
+      calendarId: 'primary',
+      timeMin: timeMinIso,
+      timeMax: timeMaxIso,
+      maxResults: 250,
+      singleEvents: true,
+      orderBy: 'startTime'
+    })
+    return (res.data.items ?? []).flatMap((e) => {
+      const start = e.start?.dateTime ?? e.start?.date
+      if (!e.id || !start) return []
+      return [
+        {
+          id: e.id,
+          title: e.summary || '(タイトルなし)',
+          start,
+          end: e.end?.dateTime ?? e.end?.date ?? start,
+          allDay: !e.start?.dateTime,
+          url: e.htmlLink ?? undefined
+        }
+      ]
+    })
   }
 
   async fetchCards(): Promise<Card[]> {

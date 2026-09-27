@@ -74,9 +74,35 @@ export function defaultShell(): ShellOption {
     : { id: 'sh', label: 'sh', path: '/bin/sh', args: [] }
 }
 
+/**
+ * The environment a shell starts with. Windows PowerShell 5.1 started from a
+ * PowerShell 7 session (e.g. `npm run dev` in pwsh) inherits PS7's
+ * PSModulePath and then fails to load its own PSReadLine — no history, no
+ * line editing. Dropping the variable lets 5.1 rebuild its default path.
+ */
+export function shellEnv(shell: ShellOption, base: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(base)) {
+    if (value !== undefined) env[key] = value
+  }
+  if (shell.id === 'powershell') {
+    for (const key of Object.keys(env)) {
+      if (key.toLowerCase() === 'psmodulepath') delete env[key]
+    }
+  }
+  env.TERM = 'xterm-256color'
+  env.COLORTERM = 'truecolor'
+  return env
+}
+
 interface PtySession {
   proc: pty.IPty
+  /** Recent output, replayed to a terminal view that attaches after it was emitted. */
+  backlog: string
 }
+
+/** How much recent output to keep per session for replay (characters). */
+const BACKLOG_LIMIT = 200_000
 
 export interface PtyManagerOptions {
   onData: (tileId: string, data: string) => void
@@ -91,11 +117,20 @@ export class PtyManager {
     this.options = options
   }
 
+  /**
+   * Starts a session for the tile, or — if one is already running (the tile's
+   * view re-mounted) — resizes it and returns its recent output so the new
+   * view can show what it missed.
+   */
   create(
     tileId: string,
     opts: { shellId?: string; cwd?: string; cols: number; rows: number }
-  ): void {
-    if (this.sessions.has(tileId)) return
+  ): { backlog: string } {
+    const existing = this.sessions.get(tileId)
+    if (existing) {
+      this.resize(tileId, opts.cols, opts.rows)
+      return { backlog: existing.backlog }
+    }
 
     const shells = listAvailableShells()
     const chosen = (opts.shellId ? shells.find((s) => s.id === opts.shellId) : undefined) ?? defaultShell()
@@ -105,16 +140,21 @@ export class PtyManager {
       cols: opts.cols,
       rows: opts.rows,
       cwd: opts.cwd ?? os.homedir(),
-      env: process.env as Record<string, string>
+      env: shellEnv(chosen)
     })
 
-    proc.onData((data) => this.options.onData(tileId, data))
+    const session: PtySession = { proc, backlog: '' }
+    proc.onData((data) => {
+      session.backlog = (session.backlog + data).slice(-BACKLOG_LIMIT)
+      this.options.onData(tileId, data)
+    })
     proc.onExit(({ exitCode }) => {
       this.sessions.delete(tileId)
       this.options.onExit(tileId, exitCode)
     })
 
-    this.sessions.set(tileId, { proc })
+    this.sessions.set(tileId, session)
+    return { backlog: '' }
   }
 
   write(tileId: string, data: string): void {

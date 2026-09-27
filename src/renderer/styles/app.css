@@ -90,14 +90,17 @@ body,
 
 /* ---------------- Tiling ---------------- */
 
-.bt-tiling-root,
-.bt-tiling-empty {
+.bt-tiling-root {
   flex: 1;
   min-height: 0;
-  display: flex;
+  position: relative;
+  overflow: hidden;
 }
 
 .bt-tiling-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
   align-items: center;
   justify-content: center;
 }
@@ -107,39 +110,16 @@ body,
   font-size: var(--bt-font-size-md);
 }
 
-.bt-layout-split {
-  flex: 1;
+/* Each tile is absolutely positioned from the layout tree (see TilingView). */
+.bt-tile-slot {
+  position: absolute;
   display: flex;
-  min-width: 0;
-  min-height: 0;
-}
-
-.bt-layout-split--row {
-  flex-direction: row;
-}
-
-.bt-layout-split--column {
-  flex-direction: column;
-}
-
-.bt-layout-split__pane {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-}
-
-.bt-layout-leaf {
-  flex: 1;
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  padding: 2px;
 }
 
 .bt-splitter {
-  flex-shrink: 0;
+  position: absolute;
+  z-index: 5;
   background: transparent;
-  position: relative;
 }
 
 .bt-splitter--row {
@@ -153,6 +133,48 @@ body,
 .bt-splitter:hover,
 .bt-splitter:active {
   background: var(--bt-accent-soft);
+}
+
+/* Drag & drop: a target over every other tile, with a hint for the zone under the pointer. */
+.bt-drop-target {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  border-radius: var(--bt-radius-md);
+  outline: 1px dashed var(--bt-border-strong);
+}
+
+.bt-drop-target__hint {
+  position: absolute;
+  background: var(--bt-accent-soft);
+  border: 2px solid var(--bt-accent);
+  border-radius: var(--bt-radius-md);
+  pointer-events: none;
+  transition: all var(--bt-duration-fast) var(--bt-easing);
+}
+
+.bt-drop-target__hint--left {
+  inset: 0 50% 0 0;
+}
+.bt-drop-target__hint--right {
+  inset: 0 0 0 50%;
+}
+.bt-drop-target__hint--top {
+  inset: 0 0 50% 0;
+}
+.bt-drop-target__hint--bottom {
+  inset: 50% 0 0 0;
+}
+.bt-drop-target__hint--center {
+  inset: 20%;
+}
+
+.bt-tile__header {
+  cursor: grab;
+}
+
+.bt-tile__header--dragging {
+  opacity: 0.5;
 }
 
 /* ---------------- Tile chrome ---------------- */
@@ -305,7 +327,6 @@ body,
 
 .bt-sysmon__summary {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: var(--bt-space-3);
   margin-bottom: var(--bt-space-4);
 }
@@ -807,4 +828,333 @@ body,
 
 .bt-statusbar__item--warning {
   color: var(--bt-warning);
+}
+
+/* ---------------- Browser ---------------- */
+
+.bt-browser {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.bt-browser__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-1);
+  padding: var(--bt-space-1) var(--bt-space-2);
+  border-bottom: 1px solid var(--bt-border);
+  background: var(--bt-bg-1);
+}
+
+.bt-browser__toolbar button {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--bt-radius-sm);
+  background: transparent;
+  color: var(--bt-text-secondary);
+  cursor: pointer;
+}
+
+.bt-browser__toolbar button:hover:not(:disabled) {
+  background: var(--bt-bg-3);
+  color: var(--bt-text-primary);
+}
+
+.bt-browser__toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.bt-browser__address {
+  flex: 1;
+  min-width: 0;
+  padding: 4px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border);
+  background: var(--bt-bg-0);
+  color: var(--bt-text-primary);
+  font-size: var(--bt-font-size-sm);
+  user-select: text;
+}
+
+.bt-browser__address:focus {
+  outline: none;
+  border-color: var(--bt-accent);
+}
+
+/* ---------------- Calendar ---------------- */
+
+.bt-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-3);
+}
+
+/* The month grid stretches to the tile's height instead of overflowing it. */
+.bt-calendar__grid {
+  flex: 1 0 auto;
+  grid-template-rows: auto;
+  grid-auto-rows: minmax(40px, 1fr);
+}
+
+.bt-calendar__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+}
+
+.bt-calendar__toolbar button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border);
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+  font-size: var(--bt-font-size-sm);
+  cursor: pointer;
+}
+
+.bt-calendar__title {
+  font-size: var(--bt-font-size-lg);
+  font-weight: 600;
+  min-width: 7.5em;
+  text-align: center;
+}
+
+.bt-calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.bt-calendar__weekday {
+  text-align: center;
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-muted);
+  padding: 2px 0;
+}
+
+.bt-calendar__day {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  font-family: inherit;
+}
+
+.bt-calendar__day:hover {
+  background: var(--bt-bg-3);
+}
+
+.bt-calendar__day.is-outside {
+  color: var(--bt-text-muted);
+  background: transparent;
+}
+
+.bt-calendar__day.is-selected {
+  border-color: var(--bt-accent);
+}
+
+.bt-calendar__date {
+  font-size: var(--bt-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.bt-calendar__day.is-today .bt-calendar__date {
+  align-self: flex-start;
+  min-width: 22px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bt-accent);
+  color: var(--bt-text-on-accent);
+  text-align: center;
+}
+
+.bt-calendar__day.is-sun:not(.is-today) > .bt-calendar__date,
+.bt-calendar__weekday.is-sun {
+  color: var(--bt-danger);
+}
+
+.bt-calendar__day.is-sat:not(.is-today) > .bt-calendar__date,
+.bt-calendar__weekday.is-sat {
+  color: var(--bt-accent-strong);
+}
+
+.bt-calendar__event-chip {
+  font-size: var(--bt-font-size-xs);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bt-accent-soft);
+  color: var(--bt-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bt-calendar__more {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-muted);
+}
+
+.bt-calendar__agenda {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bt-calendar__agenda-row {
+  display: flex;
+  gap: var(--bt-space-3);
+  padding: var(--bt-space-2);
+  border: none;
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.bt-calendar__agenda-time {
+  min-width: 4em;
+  color: var(--bt-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------- SysMon chart ---------------- */
+
+.bt-sysmon__cpu {
+  margin-bottom: var(--bt-space-3);
+}
+
+.bt-sysmon__cpu-now {
+  margin-left: auto;
+  font-size: var(--bt-font-size-lg);
+  font-weight: 600;
+  color: var(--bt-text-primary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.bt-sysmon__summary {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.bt-stat-card__sub {
+  margin-top: var(--bt-space-1);
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-secondary);
+}
+
+.bt-cpu-chart {
+  position: relative;
+  margin-top: var(--bt-space-2);
+}
+
+.bt-cpu-chart svg {
+  display: block;
+}
+
+.bt-cpu-chart__grid {
+  stroke: var(--bt-border);
+  stroke-width: 1;
+}
+
+.bt-cpu-chart__axis {
+  fill: var(--bt-text-muted);
+  font-size: 10px;
+}
+
+.bt-cpu-chart__line {
+  fill: none;
+  stroke: var(--bt-accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.bt-cpu-chart__area {
+  fill: var(--bt-accent-soft);
+}
+
+.bt-cpu-chart__crosshair {
+  stroke: var(--bt-text-muted);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.bt-cpu-chart__dot {
+  fill: var(--bt-accent);
+  stroke: var(--bt-bg-1);
+  stroke-width: 2;
+}
+
+.bt-cpu-chart__tooltip {
+  position: absolute;
+  transform: translate(-50%, -110%);
+  padding: 3px 8px;
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-bg-3);
+  border: 1px solid var(--bt-border-strong);
+  color: var(--bt-text-secondary);
+  font-size: var(--bt-font-size-xs);
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.bt-cpu-chart__tooltip strong {
+  color: var(--bt-text-primary);
+}
+
+/* ---------------- Settings preferences ---------------- */
+
+.bt-settings__prefs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-2);
+  padding: var(--bt-space-3);
+  border: 1px solid var(--bt-border);
+  border-radius: var(--bt-radius-md);
+  background: var(--bt-bg-1);
+}
+
+.bt-settings__field {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-3);
+  font-size: var(--bt-font-size-sm);
+}
+
+.bt-settings__field > span {
+  min-width: 8em;
+  color: var(--bt-text-secondary);
+}
+
+.bt-settings__field select,
+.bt-settings__field input {
+  flex: 1;
+  padding: 5px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border-strong);
+  background: var(--bt-bg-0);
+  color: var(--bt-text-primary);
+  font-family: inherit;
 }
