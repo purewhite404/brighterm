@@ -1,0 +1,190 @@
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { PluginHost } from './pluginHost'
+import { PluginHostApiBridge, PermissionDeniedError } from './hostApiBridge'
+import type { ParsedBundleFile } from './bundleParser'
+
+function pluginFiles(id: string, permissions: unknown[]): ParsedBundleFile[] {
+  return [
+    {
+      path: 'manifest.json',
+      content: JSON.stringify({
+        id,
+        name: id,
+        version: '1.0.0',
+        icon: 'note',
+        kind: 'app',
+        entry: 'index.html',
+        permissions
+      })
+    },
+    { path: 'index.html', content: '<html></html>' }
+  ]
+}
+
+describe('PluginHostApiBridge', () => {
+  let pluginsDir: string
+  let dataDir: string
+  let pluginHost: PluginHost
+  let bridge: PluginHostApiBridge
+  let publishedCards: unknown[]
+  let clearedCardIds: string[]
+
+  beforeEach(() => {
+    pluginsDir = mkdtempSync(join(tmpdir(), 'brighterm-plugins-'))
+    dataDir = mkdtempSync(join(tmpdir(), 'brighterm-plugin-data-'))
+    pluginHost = new PluginHost(pluginsDir)
+    publishedCards = []
+    clearedCardIds = []
+    bridge = new PluginHostApiBridge(
+      pluginHost,
+      dataDir,
+      (card) => publishedCards.push(card),
+      (id) => clearedCardIds.push(id)
+    )
+  })
+
+  afterEach(() => {
+    rmSync(pluginsDir, { recursive: true, force: true })
+    rmSync(dataDir, { recursive: true, force: true })
+  })
+
+  describe('storage', () => {
+    it('rejects storage access without the storage permission', () => {
+      pluginHost.install(pluginFiles('no-storage', []))
+      expect(() => bridge.storageGet('no-storage', 'x')).toThrow(PermissionDeniedError)
+    })
+
+    it('round-trips get/set/remove/keys', () => {
+      pluginHost.install(pluginFiles('with-storage', [{ type: 'storage' }]))
+      expect(bridge.storageGet('with-storage', 'count')).toBeNull()
+
+      bridge.storageSet('with-storage', 'count', 42)
+      expect(bridge.storageGet('with-storage', 'count')).toBe(42)
+      expect(bridge.storageKeys('with-storage')).toEqual(['count'])
+
+      bridge.storageRemove('with-storage', 'count')
+      expect(bridge.storageGet('with-storage', 'count')).toBeNull()
+      expect(bridge.storageKeys('with-storage')).toEqual([])
+    })
+
+    it('keeps storage separate per plugin', () => {
+      pluginHost.install(pluginFiles('plugin-a', [{ type: 'storage' }]))
+      pluginHost.install(pluginFiles('plugin-b', [{ type: 'storage' }]))
+      bridge.storageSet('plugin-a', 'x', 1)
+      bridge.storageSet('plugin-b', 'x', 2)
+      expect(bridge.storageGet('plugin-a', 'x')).toBe(1)
+      expect(bridge.storageGet('plugin-b', 'x')).toBe(2)
+    })
+
+    it('persists storage across a new bridge instance pointed at the same data dir', () => {
+      pluginHost.install(pluginFiles('persistent', [{ type: 'storage' }]))
+      bridge.storageSet('persistent', 'x', 'hello')
+
+      const reopened = new PluginHostApiBridge(pluginHost, dataDir, publishedCards.push.bind(publishedCards), () => {})
+      expect(reopened.storageGet('persistent', 'x')).toBe('hello')
+    })
+  })
+
+  describe('folders', () => {
+    function seedFolderHandle(pluginId: string, handleId: string, rootPath: string): void {
+      const pluginDataDir = join(dataDir, pluginId)
+      mkdirSync(pluginDataDir, { recursive: true })
+      writeFileSync(
+        join(pluginDataDir, 'folders.json'),
+        JSON.stringify({ [handleId]: { path: rootPath, label: 'root' } }),
+        'utf-8'
+      )
+    }
+
+    it('rejects folder access without the folders permission', () => {
+      pluginHost.install(pluginFiles('no-folders', []))
+      expect(() => bridge.listFiles('no-folders', 'folder-x')).toThrow(PermissionDeniedError)
+    })
+
+    it('lists, reads and writes files within a granted folder', () => {
+      pluginHost.install(pluginFiles('file-plugin', [{ type: 'folders' }]))
+      const rootPath = mkdtempSync(join(tmpdir(), 'brighterm-granted-'))
+      writeFileSync(join(rootPath, 'note.txt'), 'hello')
+      seedFolderHandle('file-plugin', 'folder-1', rootPath)
+
+      const files = bridge.listFiles('file-plugin', 'folder-1')
+      expect(files).toEqual([{ name: 'note.txt', isDirectory: false }])
+      expect(bridge.readFile('file-plugin', 'folder-1', 'note.txt')).toBe('hello')
+
+      bridge.writeFile('file-plugin', 'folder-1', 'note.txt', 'updated')
+      expect(bridge.readFile('file-plugin', 'folder-1', 'note.txt')).toBe('updated')
+
+      bridge.deleteFile('file-plugin', 'folder-1', 'note.txt')
+      expect(bridge.listFiles('file-plugin', 'folder-1')).toEqual([])
+
+      rmSync(rootPath, { recursive: true, force: true })
+    })
+
+    it('rejects deleting a file without the folders permission', () => {
+      pluginHost.install(pluginFiles('no-folders-del', []))
+      expect(() => bridge.deleteFile('no-folders-del', 'folder-1', 'note.txt')).toThrow(PermissionDeniedError)
+    })
+
+    it('rejects a relative path that escapes the granted folder', () => {
+      pluginHost.install(pluginFiles('escape-plugin', [{ type: 'folders' }]))
+      const rootPath = mkdtempSync(join(tmpdir(), 'brighterm-granted-'))
+      seedFolderHandle('escape-plugin', 'folder-1', rootPath)
+
+      expect(() => bridge.readFile('escape-plugin', 'folder-1', '../../etc/passwd')).toThrow(/escapes/)
+
+      rmSync(rootPath, { recursive: true, force: true })
+    })
+
+    it('throws for an unknown folder handle', () => {
+      pluginHost.install(pluginFiles('unknown-handle', [{ type: 'folders' }]))
+      expect(() => bridge.listFiles('unknown-handle', 'no-such-handle')).toThrow(/unknown folder handle/)
+    })
+  })
+
+  describe('netFetch', () => {
+    it('rejects a request to a domain not declared in the manifest', async () => {
+      pluginHost.install(pluginFiles('net-plugin', [{ type: 'network', domains: ['api.example.com'] }]))
+      await expect(bridge.netFetch('net-plugin', 'https://evil.example.com/data')).rejects.toThrow(/not permitted/)
+    })
+
+    it('allows a request to a declared domain', async () => {
+      pluginHost.install(pluginFiles('net-plugin-2', [{ type: 'network', domains: ['api.example.com'] }]))
+      const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: () => Promise.resolve('{"ok":true}') })
+      vi.stubGlobal('fetch', fetchMock)
+
+      const result = await bridge.netFetch('net-plugin-2', 'https://api.example.com/data')
+      expect(result).toEqual({ status: 200, text: '{"ok":true}' })
+      expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/data', undefined)
+
+      vi.unstubAllGlobals()
+    })
+  })
+
+  describe('HQ cards', () => {
+    it('rejects publishing a card without the hqCards permission', () => {
+      pluginHost.install(pluginFiles('no-cards', []))
+      expect(() =>
+        bridge.publishCard('no-cards', { id: 'x', priority: 'normal', title: 'Hello' })
+      ).toThrow(PermissionDeniedError)
+    })
+
+    it('forwards a published card with the source tagged as this plugin', () => {
+      pluginHost.install(pluginFiles('card-plugin', [{ type: 'hqCards' }]))
+      bridge.publishCard('card-plugin', { id: 'x', priority: 'high', title: 'Hello' })
+      expect(publishedCards).toEqual([{ id: 'x', priority: 'high', title: 'Hello', source: 'plugin:card-plugin' }])
+    })
+
+    it('forwards a card clear request', () => {
+      pluginHost.install(pluginFiles('card-plugin-2', [{ type: 'hqCards' }]))
+      bridge.clearCard('card-plugin-2', 'x')
+      expect(clearedCardIds).toEqual(['x'])
+    })
+  })
+
+  it('throws when the plugin id is not installed at all', () => {
+    expect(() => bridge.storageGet('ghost-plugin', 'x')).toThrow(/not installed/)
+  })
+})

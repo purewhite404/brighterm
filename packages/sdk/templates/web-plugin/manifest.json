@@ -1,0 +1,10 @@
+{
+  "id": "example-web-service",
+  "name": "Example Service",
+  "version": "1.0.0",
+  "icon": "browser",
+  "kind": "web",
+  "url": "https://example.com",
+  "permissions": [{ "type": "network", "domains": ["example.com"] }],
+  "description": "既存 Web サービスをそのままタイルとして埋め込む最小サンプルです。"
+}

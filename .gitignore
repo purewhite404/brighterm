@@ -1,0 +1,14 @@
+node_modules/
+out/
+out-tsc/
+dist/
+release/
+.DS_Store
+*.log
+.env
+.env.local
+userData-dev/
+playwright-report/
+test-results/
+.vite/
+*.tsbuildinfo

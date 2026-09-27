@@ -1,0 +1,10 @@
+{
+  "id": "example-counter",
+  "name": "Example Counter",
+  "version": "1.0.0",
+  "icon": "activity",
+  "kind": "app",
+  "entry": "index.html",
+  "permissions": [{ "type": "storage" }],
+  "description": "storage の使い方だけを示す最小サンプルです。"
+}

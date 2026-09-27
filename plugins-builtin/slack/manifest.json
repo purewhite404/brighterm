@@ -1,0 +1,10 @@
+{
+  "id": "slack",
+  "name": "Slack",
+  "version": "1.0.0",
+  "icon": "slack",
+  "kind": "web",
+  "url": "https://app.slack.com/client",
+  "permissions": [{ "type": "network", "domains": ["app.slack.com", "slack.com"] }],
+  "description": "Slack の Web 版をタイルとして埋め込みます。未読はタブのタイトルから自動でバッジ表示されます。既定では無効になっています — 必要な人だけドックから有効化してください。"
+}

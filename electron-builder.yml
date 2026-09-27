@@ -1,0 +1,40 @@
+appId: dev.brighterm.app
+productName: Brighterm
+directories:
+  buildResources: resources
+  output: release
+files:
+  - out/**/*
+  - plugins-builtin/**/*
+  - packages/sdk/**/*
+  - package.json
+asarUnpack:
+  - '**/*.node'
+# node-pty ships its own N-API prebuilds for every platform (see package.json
+# devDependency comment / README) — they're ABI-stable across Electron
+# versions, so electron-builder's own automatic native-module rebuild step
+# would only break things (and can't succeed without a full C++ toolchain).
+npmRebuild: false
+# NOTE: no custom `icon:` is set for any target yet — resources/ has no real
+# .ico/.icns/.png icon files (they need actual image assets, which weren't
+# available when this was scaffolded). electron-builder falls back to its own
+# default icon until real ones are added here.
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+mac:
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  category: public.app-category.productivity
+linux:
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+  category: Utility

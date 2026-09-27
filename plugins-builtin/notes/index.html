@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="tokens.css" />
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <div id="picker-screen" class="screen">
+        <p>メモを保存するフォルダを選んでください。</p>
+        <button id="pick-folder">フォルダを選ぶ</button>
+      </div>
+      <div id="notes-screen" class="screen" hidden>
+        <div id="sidebar">
+          <div id="sidebar-header">
+            <button id="new-note" title="新規メモ">＋ 新規</button>
+            <input id="search" placeholder="検索…" />
+          </div>
+          <div id="file-list"></div>
+        </div>
+        <div id="editor">
+          <input id="title" placeholder="無題のメモ" />
+          <textarea id="content" placeholder="ここに書く…（# 見出し、**太字**、- 箇条書き に対応）"></textarea>
+        </div>
+      </div>
+    </div>
+    <script src="main.js"></script>
+  </body>
+</html>
