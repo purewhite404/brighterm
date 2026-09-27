@@ -1,0 +1,103 @@
+# Brighterm — notes for Claude
+
+A personal "command HQ": one Electron window with a tiling layout of terminal,
+browser, mail, calendar, files, system monitor, notes, and AI-generated plugin
+tiles. User-facing docs are in `README.md` (Japanese); the original design plan is
+`~/.claude/plans/terminal-browser-mail-calendar-slack-1-w-ticklish-hopcroft.md`.
+Talk to the user in Japanese.
+
+## Commands
+
+| | |
+|---|---|
+| `npm run dev` | electron-vite dev (renderer hot-reloads; main/preload changes need a restart) |
+| `npm run typecheck` | both TS projects (`tsconfig.node.json` = main/preload/shared/sdk, `tsconfig.web.json` = renderer) |
+| `npm run test` | Vitest unit tests (pure logic, Node env) |
+| `npm run test:e2e` | builds, then Playwright drives the real Electron app (`tests/e2e/`) |
+| `npx electron-builder --dir --win` | quick packaging smoke test (output in `release/`, gitignored) |
+
+Before calling a change done: typecheck + unit + e2e all green. For UI bugs, add an
+e2e test that reproduces the *user's actual scenario* and look at a screenshot
+(see "Verifying UI" below).
+
+## Architecture in one screen
+
+- `src/main/index.ts` — boots everything, registers all IPC. Config is read **before**
+  `app.ready` (needed for the force-dark switch).
+- `src/main/viewManager.ts` — every web page (Browser/Mail/web plugins/AI Builder chat)
+  is a `WebContentsView` drawn *over* the DOM at the placeholder div's rect.
+  `create` is idempotent; unmounting a tile calls `hide` (not close); only hidden views
+  are suspended; sub-views are `"<tileId>::<name>"` and are closed with their tile.
+- `src/renderer/tiling/` — `layout.ts` is a pure, heavily tested binary split tree
+  (`autoGrid` ≈16:9 cells, `moveTile`, `computeRects/computeSplitters`).
+  `TilingView` renders tiles as a **flat absolutely-positioned list keyed by tile id**
+  so layout changes never remount tiles. Don't go back to nested split divs — that
+  remounts everything (lost terminal sessions, collapsed file tree, reloaded iframes).
+- `src/renderer/tiles/useEmbeddedWebView.ts` — the only way tiles should bind a web view.
+- `src/renderer/store/appStore.ts` — zustand; `updateConfig` changes memory *and* disk.
+  Writing only `window.api.config.set` leaves the UI stale (that was a real bug).
+- Plugins: `src/main/plugins/` (bundle parser, static analysis, `PluginHost` with
+  versioned install/rollback, `plugin-app://` protocol, `hostApiBridge` permission
+  checks). Spec for plugin authors/AI: `packages/sdk/AGENTS.md`.
+  Bundled plugins in `plugins-builtin/` are (re)installed at every startup.
+- Pure logic lives in small modules with `*.test.ts` next to them; Electron-dependent
+  glue (pkexec, augtool, OAuth, OpenAI) is reviewed but not executable here.
+
+## Gotchas already paid for (don't rediscover them)
+
+- **node-pty**: pinned `1.2.0-beta.15` because it ships N-API prebuilds for all OSes.
+  Never run `electron-builder install-app-deps` / electron-rebuild; `npmRebuild: false`
+  is set in `electron-builder.yml`. (This machine's Python lacks `distutils`, so any
+  node-gyp build fails anyway.)
+- **Module format**: root `package.json` is `"type": "module"`, so main and preload are
+  emitted as **`.cjs`** (`electron.vite.config.ts`). A `.js` preload fails with
+  `ERR_REQUIRE_ESM` and `window.api` is undefined.
+- **Paths at runtime** resolve from `__dirname` (`out/main`), e.g.
+  `../../plugins-builtin`, `../../packages/sdk` — same layout in dev and in `app.asar`.
+  `app.getAppPath()` was wrong when launching `electron out/main/index.cjs`.
+- **Shell CSP** (`src/renderer/index.html`) must keep `frame-src plugin-app:` or plugin
+  iframes are blocked.
+- **React StrictMode** mounts effects twice in dev: no "create once" ref guards;
+  make main-side operations idempotent instead.
+- **xterm** needs a real font stack, not `var(--bt-font-mono)` (canvas can't resolve
+  CSS vars → `dimensions` errors). Only `fit()` when the container has a size.
+- **Windows PowerShell 5.1** launched from a PS7 session inherits PS7's `PSModulePath`
+  and can't load PSReadLine — `shellEnv()` in `ptyManager.ts` strips it.
+- **Plugin HTML/CSS**: an author `display:` rule overrides the `hidden` attribute; the
+  Notes plugin has `[hidden]{display:none!important}` for that reason.
+- **Host API** `fs.*` receives a whole handle object `{id,label}`; unwrap with
+  `handleId()` (passing it through as a string produced `"[object Object]"`).
+- **Dark mode**: `nativeTheme.themeSource` drives `prefers-color-scheme` for all pages.
+  Forced dark uses `--blink-settings=forceDarkModeEnabled=true` (the
+  `WebContentsForceDark` feature flag did nothing in this Electron).
+- **This sandbox's network**: chatgpt.com is Cloudflare-blocked (403 challenge), so the
+  AI Builder chat pane and some sites can't be verified here; google.com works.
+
+## Verifying UI
+
+- E2E launches with `--user-data-dir=<tmp>` and **`colorScheme: null`** — Playwright
+  otherwise emulates `prefers-color-scheme: light` on every page.
+- Replace native dialogs in tests via `app.evaluate(({dialog}) => …)`.
+- Plugin iframes: `window.frameLocator('iframe.bt-plugin-frame')`.
+- Assert what the user sees (`toBeHidden`, `toBeInViewport`, files on disk), not just
+  that an element exists — an earlier Notes test passed while the editor was off-screen.
+- For screenshots, write a throwaway `tests/e2e/zz-*.spec.ts` that saves PNGs to the
+  scratchpad, `Read` the image, then delete the spec.
+
+## Status (as of 2026-09-28)
+
+Working and covered by tests: tiling (auto grid, drag & drop, splitters), Terminal,
+Files, System Monitor (CPU chart, memory meter), Mail (provider choice), Browser
+(DuckDuckGo default), Calendar (built-in, optional Google events), Settings (OS
+shortcuts with icons, mail/search/web-theme prefs, Linux /etc editor), HQ, Notes,
+Slack (web embed, disabled by default), AI Builder (web-bridge + OpenAI API agent),
+plugin install/validate/rollback, web dark mode.
+
+Known gaps / possible next steps:
+- Not verified with real credentials: Google OAuth/Calendar/Gmail, OpenAI agent mode.
+- Linux-only paths (etc editor, desktop settings detection) unverified — no Linux box.
+- Anthropic/Gemini agent providers are stubs (return a "not implemented" error).
+- No app icons in `resources/`; macOS signing not set up.
+- Background `connector.js` for plugins was deliberately descoped (sandboxing risk).
+- Renderer bundle is one ~1 MB chunk (no code splitting).
+- AI Builder has no UI to pick provider/model/base URL (config only).
