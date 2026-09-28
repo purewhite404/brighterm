@@ -1,3 +1,4 @@
+import type { SniffResult } from '@shared/apiTypes'
 /**
  * Content-based file type detection, in the spirit of `file(1)`: magic bytes
  * for binary formats, then heuristics that tell plain text (notes, logs,
@@ -9,16 +10,6 @@
  * - 'image' | 'pdf' | 'video' | 'audio' → rendered preview
  * - 'binary' → everything else: properties only
  */
-
-export type SniffKind = 'text' | 'code' | 'image' | 'pdf' | 'video' | 'audio' | 'binary' | 'empty'
-
-export interface SniffResult {
-  kind: SniffKind
-  /** Human-readable, `file`-style description, e.g. "PNG image data", "UTF-8 text", "Python script". */
-  description: string
-  /** MIME type when it matters for rendering (images, media, pdf). */
-  mime?: string
-}
 
 interface Magic {
   test: (b: Uint8Array) => boolean

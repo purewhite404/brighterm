@@ -29,9 +29,7 @@ export function App(): React.JSX.Element {
     const unsubSnapshot = window.api.tile.onSnapshotUpdated((tileId, snapshot) => {
       setTileRuntime(tileId, { snapshot })
     })
-    const unsubMemory = window.api.memory.onSnapshot((snapshot) => {
-      setMemorySnapshot(snapshot as Parameters<typeof setMemorySnapshot>[0])
-    })
+    const unsubMemory = window.api.memory.onSnapshot((snapshot) => setMemorySnapshot(snapshot))
     const unsubCardPublished = window.api.hq.onCardPublished((card) => publishHqCard(card))
     const unsubCardCleared = window.api.hq.onCardCleared((cardId) => removeHqCard(cardId))
     const unsubOpenTile = window.api.plugins.onRequestOpenTile((builtinTypeId) => {

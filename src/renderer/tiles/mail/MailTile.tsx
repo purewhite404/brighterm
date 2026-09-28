@@ -1,4 +1,4 @@
-import { resolveMail } from '@shared/types'
+import { resolveMail } from '@shared/presets'
 import { useAppStore } from '../../store/appStore'
 import { EmbeddedWebView } from '../shared/EmbeddedWebView'
 import { subViewId } from '../shared/subViews'

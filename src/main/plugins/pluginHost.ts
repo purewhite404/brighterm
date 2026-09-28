@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { parseManifest, type PluginManifest, type PluginPermission } from '@sdk/manifest.schema'
 import { type ParsedBundleFile } from './bundleParser'
 import { scanFileForForbiddenPatterns, findUndeclaredDomains } from './staticAnalysis'
+import type { PluginInstallIssue, PluginInstallResult, PluginListItem } from '@shared/apiTypes'
 
 /**
  * Owns every installed plugin's on-disk state under
@@ -26,27 +27,6 @@ export interface PluginRegistryEntry {
 
 interface Registry {
   plugins: Record<string, PluginRegistryEntry>
-}
-
-export interface PluginInstallIssue {
-  file?: string
-  message: string
-}
-
-export interface PluginInstallResult {
-  ok: boolean
-  manifest?: PluginManifest
-  errors: PluginInstallIssue[]
-  /** Non-fatal but worth surfacing to the user before they approve the permission list. */
-  warnings: PluginInstallIssue[]
-}
-
-export interface PluginListItem {
-  manifest: PluginManifest
-  dir: string
-  enabled: boolean
-  installedAt: number
-  versions: string[]
 }
 
 function emptyRegistry(): Registry {

@@ -1,21 +1,6 @@
 import os from 'node:os'
 import si from 'systeminformation'
-
-export interface ProcessInfo {
-  pid: number
-  name: string
-  cpu: number
-  memBytes: number
-  command: string
-}
-
-export interface SystemSnapshot {
-  cpuLoadPercent: number
-  totalMemBytes: number
-  usedMemBytes: number
-  /** Omitted when the caller didn't ask for processes (listing them is far slower than CPU/memory). */
-  topProcesses?: ProcessInfo[]
-}
+import type { SystemSnapshot } from '@shared/apiTypes'
 
 /** Total / used memory. On Windows si.mem() spawns PowerShell (for swap), too slow to poll every 0.5 s. */
 async function memoryUsage(): Promise<{ total: number; used: number }> {

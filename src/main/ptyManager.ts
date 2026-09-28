@@ -2,19 +2,13 @@ import os from 'node:os'
 import { existsSync, lstatSync } from 'node:fs'
 import path from 'node:path'
 import * as pty from 'node-pty'
+import type { ShellOption } from '@shared/apiTypes'
 
 /**
  * Owns every terminal (node-pty) session, one per Terminal tile instance.
  * OS-specific shell discovery lives here so the renderer never has to know
  * about PowerShell vs. zsh vs. $SHELL.
  */
-
-export interface ShellOption {
-  id: string
-  label: string
-  path: string
-  args: string[]
-}
 
 /**
  * existsSync() reports false for Windows "app execution aliases" (how the

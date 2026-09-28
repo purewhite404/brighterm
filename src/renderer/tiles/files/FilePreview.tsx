@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import type { DirEntry, FileInspection } from '../../../main/fsService'
+import type { DirEntry, FileInspection } from '@shared/apiTypes'
 import { Icon } from '../../ui/Icon'
 import { EmbeddedWebView } from '../shared/EmbeddedWebView'
 import { sidePaneId } from '../shared/subViews'

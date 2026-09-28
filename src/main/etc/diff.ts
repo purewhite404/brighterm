@@ -1,11 +1,10 @@
+import type { DiffOp } from '@shared/apiTypes'
 /**
  * A minimal line-based diff (Myers-ish LCS) — enough for a "here's what's
  * about to change" preview before writing to a root-owned config file. Not
  * meant to compete with a real diff library; kept dependency-free and easy
  * to unit test.
  */
-
-export type DiffOp = { type: 'equal' | 'add' | 'remove'; line: string }
 
 export function diffLines(before: string, after: string): DiffOp[] {
   const a = before.split('\n')

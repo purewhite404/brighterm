@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { SettingsShortcut } from '../../../main/settingsShortcuts'
+import type { SettingsShortcut } from '@shared/apiTypes'
 import { Icon } from '../../ui/Icon'
 
 /** Buttons that open the OS's own settings pages (Windows ms-settings:, macOS panes, Linux tools). */

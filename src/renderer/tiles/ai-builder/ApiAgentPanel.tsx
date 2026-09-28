@@ -1,13 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../../store/appStore'
+import type { AgentEvent } from '@shared/apiTypes'
 import { Icon } from '../../ui/Icon'
-
-type AgentEvent =
-  | { type: 'assistant-text'; text: string }
-  | { type: 'tool-call'; name: string; arguments: unknown }
-  | { type: 'tool-result'; name: string; result: unknown }
-  | { type: 'error'; message: string }
-  | { type: 'done' }
 
 const TOOL_LABELS: Record<string, string> = {
   list_plugins: 'インストール済み一覧を確認',
@@ -73,7 +67,7 @@ export function ApiAgentPanel(): React.JSX.Element {
     void window.api.builder.hasApiKey(provider).then(setHasKey)
   }, [provider])
 
-  useEffect(() => window.api.builder.onAgentEvent((e) => setEvents((prev) => [...prev, e as AgentEvent])), [])
+  useEffect(() => window.api.builder.onAgentEvent((e) => setEvents((prev) => [...prev, e])), [])
 
   const saveKey = async (): Promise<void> => {
     if (!apiKey.trim()) return

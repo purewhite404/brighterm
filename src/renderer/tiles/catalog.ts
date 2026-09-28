@@ -1,5 +1,5 @@
 import type { BuiltinTileType, TileInstance, WebTileDefinition } from '@shared/types'
-import type { PluginListItem } from '../../main/plugins/pluginHost'
+import type { PluginListItem } from '@shared/apiTypes'
 
 export interface BuiltinTileInfo {
   title: string

@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
-import type { DirEntry } from '../../../main/fsService'
+import type { DirEntry } from '@shared/apiTypes'
 import { Icon } from '../../ui/Icon'
 import {
   COLUMN_LABELS,

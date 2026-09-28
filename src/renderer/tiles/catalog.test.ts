@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { PluginListItem } from '../../main/plugins/pluginHost'
+import type { PluginListItem } from '@shared/apiTypes'
 import { builtinTile, pluginTile, webTile } from './catalog'
 
 const plugin = (kind: 'web' | 'app'): PluginListItem =>

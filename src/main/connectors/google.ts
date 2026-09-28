@@ -5,6 +5,7 @@ import { shell } from 'electron'
 import { calendarEventsToCards, gmailMessagesToCards } from './googleCardMapper'
 import type { GoogleCredentialsStore } from './googleCredentialsStore'
 import type { Card } from '@shared/types'
+import type { CalendarEvent } from '@shared/apiTypes'
 
 /**
  * Google Calendar + Gmail -> HQ cards, via the standard "installed app"
@@ -16,16 +17,6 @@ import type { Card } from '@shared/types'
  * exercised against a real Google account in this environment — there was
  * no test Google Cloud project/credentials available to verify against.
  */
-
-export interface CalendarEvent {
-  id: string
-  title: string
-  /** ISO date-time, or YYYY-MM-DD for all-day events. */
-  start: string
-  end: string
-  allDay: boolean
-  url?: string
-}
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',

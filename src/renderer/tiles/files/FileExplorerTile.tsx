@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import type { DirEntry, FileInspection } from '../../../main/fsService'
+import type { DirEntry, FileInspection } from '@shared/apiTypes'
 import { useAppStore, selectActiveWorkspace } from '../../store/appStore'
 import { Icon } from '../../ui/Icon'
 import { builtinTile } from '../catalog'

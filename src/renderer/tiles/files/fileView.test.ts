@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { DirEntry } from '../../../main/fsService'
+import type { DirEntry } from '@shared/apiTypes'
 import { DEFAULT_VIEW, arrangeEntries, creationTarget, fitColumns, formatSize, formatTimestamp, resolveView } from './fileView'
 
 const entry = (name: string, over: Partial<DirEntry> = {}): DirEntry => ({

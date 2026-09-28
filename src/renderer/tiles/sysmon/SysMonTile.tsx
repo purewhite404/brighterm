@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { ProcessInfo, SystemSnapshot } from '../../../main/sysMonitor'
+import type { ProcessInfo, SystemSnapshot } from '@shared/apiTypes'
 import { useAppStore } from '../../store/appStore'
 import { Icon } from '../../ui/Icon'
 import { CpuChart, type CpuSample } from './CpuChart'

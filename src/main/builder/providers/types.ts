@@ -1,3 +1,4 @@
+import type { AgentEvent } from '@shared/apiTypes'
 /**
  * Provider-agnostic shape for the AI Builder's "API agent" mode (mode 2).
  * Only an OpenAI (and OpenAI-compatible / local LLM) implementation exists
@@ -12,13 +13,6 @@ export interface AgentToolDef {
   /** JSON Schema for the tool's arguments object. */
   parameters: Record<string, unknown>
 }
-
-export type AgentEvent =
-  | { type: 'assistant-text'; text: string }
-  | { type: 'tool-call'; name: string; arguments: unknown }
-  | { type: 'tool-result'; name: string; result: unknown }
-  | { type: 'error'; message: string }
-  | { type: 'done' }
 
 export interface AgentRunOptions {
   systemPrompt: string

@@ -1,3 +1,4 @@
+import type { AugeasNode } from '@shared/apiTypes'
 /**
  * Thin adapter over the `augtool` CLI (Augeas). Kept dependency-injected
  * (the caller supplies how to actually run a process) so the parsing logic
@@ -17,12 +18,6 @@ export interface AugeasExecResult {
 
 /** Runs `augtool <flags>` feeding `stdin` as its command script, one command per line. */
 export type AugeasExecFn = (stdin: string) => AugeasExecResult
-
-export interface AugeasNode {
-  /** Full Augeas path, e.g. "/files/etc/hosts/1/ipaddr". */
-  path: string
-  value: string | null
-}
 
 export function isAugeasAvailable(exec: AugeasExecFn): boolean {
   const result = exec('help\n')

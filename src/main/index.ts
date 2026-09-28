@@ -33,7 +33,8 @@ import { buildAgentSystemPrompt } from './builder/systemPrompt'
 import { OpenAiAgentProvider } from './builder/providers/openai'
 import { cpSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { IPC, type AppConfig, type Card, type Rect, type WebTheme } from '@shared/types'
+import { IPC } from '@shared/ipc'
+import type { AppConfig, Card, Rect, WebTheme } from '@shared/types'
 
 // Single instance: a second launch just focuses the existing window instead
 // of opening a duplicate command HQ. app.quit() doesn't stop this process
@@ -141,17 +142,17 @@ function registerIpcHandlers(): void {
     if (patch.appearance) applyWebTheme(next.appearance.webTheme)
     return next
   })
-  ipcMain.handle('app:restart-required', () => {
+  ipcMain.handle(IPC.appRestartRequired, () => {
     // Only switching force-dark on or off needs a restart.
     const now = configStore.get().appearance.webTheme
     return (now === 'force-dark') !== (startupWebTheme === 'force-dark')
   })
-  ipcMain.handle('app:relaunch', () => {
+  ipcMain.handle(IPC.appRelaunch, () => {
     configStore.flush()
     app.relaunch()
     app.exit(0)
   })
-  ipcMain.handle('app:is-packaged', () => app.isPackaged)
+  ipcMain.handle(IPC.appIsPackaged, () => app.isPackaged)
 
   ipcMain.handle(IPC.tileCreate, (_event, args: { tileId: string; kind: string; url?: string; partitionId?: string; compactCss?: string }) => {
     if (args.kind === 'web' || args.kind === 'plugin') {
@@ -173,25 +174,25 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC.tileSuspend, async (_event, tileId: string) => {
     await viewManager.suspend(tileId)
   })
-  ipcMain.handle('tile:hide', (_event, tileId: string) => viewManager.hide(tileId))
-  ipcMain.handle('tile:navigate', (_event, tileId: string, url: string, onlyIfChanged?: boolean) =>
+  ipcMain.handle(IPC.tileHide, (_event, tileId: string) => viewManager.hide(tileId))
+  ipcMain.handle(IPC.tileNavigate, (_event, tileId: string, url: string, onlyIfChanged?: boolean) =>
     viewManager.navigate(tileId, url, onlyIfChanged)
   )
-  ipcMain.handle('tile:go-back', (_event, tileId: string) => viewManager.goBack(tileId))
-  ipcMain.handle('tile:go-forward', (_event, tileId: string) => viewManager.goForward(tileId))
-  ipcMain.handle('tile:reload', (_event, tileId: string) => viewManager.reload(tileId))
+  ipcMain.handle(IPC.tileGoBack, (_event, tileId: string) => viewManager.goBack(tileId))
+  ipcMain.handle(IPC.tileGoForward, (_event, tileId: string) => viewManager.goForward(tileId))
+  ipcMain.handle(IPC.tileReload, (_event, tileId: string) => viewManager.reload(tileId))
   ipcMain.handle(IPC.tileResume, (_event, tileId: string) => {
     viewManager.resume(tileId)
   })
-  ipcMain.handle('overlay:show', async () => {
+  ipcMain.handle(IPC.overlayShow, async () => {
     await viewManager.hideAllForOverlay()
   })
-  ipcMain.handle('overlay:hide', () => {
+  ipcMain.handle(IPC.overlayHide, () => {
     viewManager.showAllAfterOverlay()
   })
 
-  ipcMain.handle('shell:list-shells', () => listAvailableShells())
-  ipcMain.handle('shell:default-shell', () => defaultShell())
+  ipcMain.handle(IPC.shellList, () => listAvailableShells())
+  ipcMain.handle(IPC.shellDefault, () => defaultShell())
 
   ipcMain.handle(IPC.ptyCreate, (_event, tileId: string, opts: { shellId?: string; cwd?: string; cols: number; rows: number }) => {
     return ptyManager.create(tileId, opts)
@@ -211,44 +212,44 @@ function registerIpcHandlers(): void {
     })
   })
   ipcMain.handle(IPC.fsWatchStop, (_event, watchId: string) => fsWatchers.stop(watchId))
-  ipcMain.handle('fs:home-dir', () => getHomeDir())
-  ipcMain.handle('fs:stat-entry', (_event, filePath: string) => statEntry(filePath))
-  ipcMain.handle('fs:inspect', (_event, filePath: string) => inspectFile(filePath))
-  ipcMain.handle('fs:create', (_event, parentDir: string, name: string, kind: 'dir' | 'file') =>
+  ipcMain.handle(IPC.fsHomeDir, () => getHomeDir())
+  ipcMain.handle(IPC.fsStatEntry, (_event, filePath: string) => statEntry(filePath))
+  ipcMain.handle(IPC.fsInspect, (_event, filePath: string) => inspectFile(filePath))
+  ipcMain.handle(IPC.fsCreate, (_event, parentDir: string, name: string, kind: 'dir' | 'file') =>
     createEntry(parentDir, name, kind)
   )
 
-  ipcMain.handle('sysmon:snapshot', (_event, opts?: { processes?: boolean }) => getSystemSnapshot(opts))
+  ipcMain.handle(IPC.sysmonSnapshot, (_event, opts?: { processes?: boolean }) => getSystemSnapshot(opts))
 
-  ipcMain.handle('shell:open-external', (_event, url: string) => shell.openExternal(url))
-  ipcMain.handle('shell:open-path', (_event, path: string) => shell.openPath(path))
-  ipcMain.handle('shell:show-item', (_event, path: string) => shell.showItemInFolder(path))
+  ipcMain.handle(IPC.shellOpenExternal, (_event, url: string) => shell.openExternal(url))
+  ipcMain.handle(IPC.shellOpenPath, (_event, path: string) => shell.openPath(path))
+  ipcMain.handle(IPC.shellShowItem, (_event, path: string) => shell.showItemInFolder(path))
 
-  ipcMain.handle(IPC.settingsOpenOsShortcut, () => getShortcutsForOs())
+  ipcMain.handle(IPC.settingsGetOsShortcuts, () => getShortcutsForOs())
   ipcMain.handle(IPC.settingsHasDesktopSettingsTool, () => detectLinuxDesktopSettingsTool() !== null)
-  ipcMain.on('settings:open-shortcut-by-id', (_event, shortcutId: string) => {
+  ipcMain.on(IPC.settingsOpenShortcut, (_event, shortcutId: string) => {
     const shortcut = getShortcutsForOs().find((s) => s.id === shortcutId)
     if (shortcut) openShortcut(shortcut)
   })
 
   ipcMain.handle(IPC.etcList, () => etcService.listCommonFiles())
   ipcMain.handle(IPC.etcRead, (_event, path: string) => etcService.readFile(path))
-  ipcMain.handle('etc:is-supported', () => etcService.isSupported())
-  ipcMain.handle('etc:has-augeas', () => etcService.hasAugeas())
-  ipcMain.handle('etc:read-augeas-tree', (_event, path: string) => etcService.readAugeasTree(path))
+  ipcMain.handle(IPC.etcIsSupported, () => etcService.isSupported())
+  ipcMain.handle(IPC.etcHasAugeas, () => etcService.hasAugeas())
+  ipcMain.handle(IPC.etcReadAugeasTree, (_event, path: string) => etcService.readAugeasTree(path))
   ipcMain.handle(IPC.etcDiff, (_event, path: string, newContent: string) => etcService.preview(path, newContent))
   ipcMain.handle(IPC.etcValidate, (_event, path: string, candidateContent: string) =>
     etcService.validate(path, candidateContent)
   )
   ipcMain.handle(IPC.etcWrite, (_event, path: string, newContent: string) => etcService.writeFile(path, newContent))
-  ipcMain.handle('etc:write-augeas-value', (_event, path: string, augPath: string, value: string) =>
+  ipcMain.handle(IPC.etcWriteAugeasValue, (_event, path: string, augPath: string, value: string) =>
     etcService.writeAugeasValue(path, augPath, value)
   )
   ipcMain.handle(IPC.etcHistory, (_event, path: string) => etcService.listHistory(path))
   ipcMain.handle(IPC.etcRestore, (_event, path: string, fileName: string) => etcService.restore(path, fileName))
 
   ipcMain.handle(IPC.pluginsList, () => pluginHost.list())
-  ipcMain.handle('plugins:validate-bundle', (_event, rawText: string) => {
+  ipcMain.handle(IPC.pluginsValidateBundle, (_event, rawText: string) => {
     const parsed = parseBundle(rawText)
     if (!parsed.ok) return { ok: false, errors: parsed.errors.map((message) => ({ message })), warnings: [] }
     return pluginHost.validate(parsed.files)
@@ -257,24 +258,24 @@ function registerIpcHandlers(): void {
     const parsed = parseBundle(rawText)
     if (!parsed.ok) return { ok: false, errors: parsed.errors.map((message) => ({ message })), warnings: [] }
     const result = pluginHost.install(parsed.files)
-    if (result.ok) send('plugins:changed')
+    if (result.ok) send(IPC.pluginsChanged)
     return result
   })
   ipcMain.handle(IPC.pluginsSetEnabled, (_event, id: string, enabled: boolean) => {
     pluginHost.setEnabled(id, enabled)
-    send('plugins:changed')
+    send(IPC.pluginsChanged)
   })
   ipcMain.handle(IPC.pluginsRollback, (_event, id: string, toVersion: string) => {
     const ok = pluginHost.rollback(id, toVersion)
-    if (ok) send('plugins:changed')
+    if (ok) send(IPC.pluginsChanged)
     return ok
   })
   ipcMain.handle(IPC.pluginsUninstall, (_event, id: string) => {
     pluginHost.uninstall(id)
-    send('plugins:changed')
+    send(IPC.pluginsChanged)
   })
-  ipcMain.handle('plugins:app-url', (_event, id: string) => pluginAppUrl(id))
-  ipcMain.handle('plugins:grant-folder', (_event, pluginId: string, path: string) =>
+  ipcMain.handle(IPC.pluginsAppUrl, (_event, id: string) => pluginAppUrl(id))
+  ipcMain.handle(IPC.pluginsGrantFolder, (_event, pluginId: string, path: string) =>
     hostApiBridge.grantFolder(pluginId, path)
   )
   ipcMain.handle(
@@ -282,26 +283,26 @@ function registerIpcHandlers(): void {
     async (_event, pluginId: string, method: string, args: unknown[]) => callHostApi(pluginId, method, args)
   )
 
-  ipcMain.handle('google:has-client-credentials', () => googleConnector.hasClientCredentials())
-  ipcMain.handle('google:is-connected', () => googleConnector.isConnected())
-  ipcMain.handle('google:set-client-credentials', (_event, clientId: string, clientSecret: string) => {
+  ipcMain.handle(IPC.googleHasClientCredentials, () => googleConnector.hasClientCredentials())
+  ipcMain.handle(IPC.googleIsConnected, () => googleConnector.isConnected())
+  ipcMain.handle(IPC.googleSetClientCredentials, (_event, clientId: string, clientSecret: string) => {
     googleConnector.setClientCredentials(clientId, clientSecret)
   })
-  ipcMain.handle('google:connect', async () => {
+  ipcMain.handle(IPC.googleConnect, async () => {
     await googleConnector.connect()
     await pollGoogleCards()
   })
-  ipcMain.handle('google:list-events', (_event, timeMinIso: string, timeMaxIso: string) =>
+  ipcMain.handle(IPC.googleListEvents, (_event, timeMinIso: string, timeMaxIso: string) =>
     googleConnector.listEvents(timeMinIso, timeMaxIso)
   )
-  ipcMain.handle('google:disconnect', () => {
+  ipcMain.handle(IPC.googleDisconnect, () => {
     googleConnector.disconnect()
-    for (const id of lastGoogleCardIds) send('hq:card-cleared', id)
+    for (const id of lastGoogleCardIds) send(IPC.hqCardCleared, id)
     lastGoogleCardIds = new Set()
   })
 
-  ipcMain.handle('builder:has-api-key', (_event, provider: string) => secretStore.has(provider))
-  ipcMain.handle('builder:set-api-key', (_event, provider: string, apiKey: string) => secretStore.set(provider, apiKey))
+  ipcMain.handle(IPC.builderHasApiKey, (_event, provider: string) => secretStore.has(provider))
+  ipcMain.handle(IPC.builderSetApiKey, (_event, provider: string, apiKey: string) => secretStore.set(provider, apiKey))
   ipcMain.handle(IPC.builderAgentRun, async (_event, request: string) => runAgent(request))
   ipcMain.handle(IPC.builderExportKit, async () => exportAiKit())
 }
@@ -348,7 +349,7 @@ async function runAgent(request: string): Promise<{ ok: boolean; error?: string 
         send(IPC.builderAgentEvent, event)
         if (event.type === 'tool-result' && event.name === 'install_staged_bundle') {
           const result = event.result as { ok?: boolean } | undefined
-          if (result?.ok) send('plugins:changed')
+          if (result?.ok) send(IPC.pluginsChanged)
         }
       },
       apiKey,
@@ -395,7 +396,7 @@ async function callHostApi(pluginId: string, method: string, args: unknown[]): P
     case 'notify':
       return hostApiBridge.notify(pluginId, args[0] as string, args[1] as string | undefined)
     case 'openTile':
-      send('plugins:request-open-tile', args[0] as string)
+      send(IPC.pluginsRequestOpenTile, args[0] as string)
       return undefined
     default:
       throw new Error(`unknown host API method: ${method}`)
@@ -410,9 +411,9 @@ async function pollGoogleCards(): Promise<void> {
     const cards = await googleConnector.fetchCards()
     const newIds = new Set(cards.map((c) => c.id))
     for (const id of lastGoogleCardIds) {
-      if (!newIds.has(id)) send('hq:card-cleared', id)
+      if (!newIds.has(id)) send(IPC.hqCardCleared, id)
     }
-    for (const card of cards) send('hq:card-published', card)
+    for (const card of cards) send(IPC.hqCardPublished, card)
     lastGoogleCardIds = newIds
   } catch (err) {
     console.error('[Google] failed to fetch HQ cards:', err)
@@ -473,8 +474,8 @@ app.whenReady().then(() => {
   hostApiBridge = new PluginHostApiBridge(
     pluginHost,
     join(app.getPath('userData'), 'plugin-data'),
-    (card) => send('hq:card-published', card),
-    (cardId) => send('hq:card-cleared', cardId)
+    (card) => send(IPC.hqCardPublished, card),
+    (cardId) => send(IPC.hqCardCleared, cardId)
   )
   registerPluginProtocolHandler(pluginHost)
 
@@ -486,9 +487,9 @@ app.whenReady().then(() => {
 
   viewManager = new ViewManager({
     getWindow: () => mainWindow,
-    onSnapshotUpdated: (tileId, snapshot) => send('tile:snapshot-updated', tileId, snapshot),
+    onSnapshotUpdated: (tileId, snapshot) => send(IPC.tileSnapshotUpdated, tileId, snapshot),
     onTitleUpdated: (tileId, title) => send(IPC.tileTitleUpdated, tileId, title),
-    onNavigated: (tileId, state) => send('tile:navigated', tileId, state)
+    onNavigated: (tileId, state) => send(IPC.tileNavigated, tileId, state)
   })
   ptyManager = new PtyManager({
     onData: (tileId, data) => send(IPC.ptyData, tileId, data),

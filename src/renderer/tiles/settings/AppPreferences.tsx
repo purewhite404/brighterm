@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../../store/appStore'
-import { MAIL_PROVIDERS, SEARCH_ENGINES, type SearchEngineId, type WebTheme } from '@shared/types'
+import { MAIL_PROVIDERS, SEARCH_ENGINES } from '@shared/presets'
+import type { SearchEngineId, WebTheme } from '@shared/types'
 
 /** Brighterm's own preferences: which mail service the Mail tile opens, which search engine the Browser uses. */
 export function AppPreferences(): React.JSX.Element | null {

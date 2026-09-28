@@ -3,12 +3,11 @@ import { existsSync, readFileSync, writeFileSync, mkdtempSync, rmSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { EtcHistory, type HistoryEntry } from './history'
-import { findValidator, type ExecResult } from './validators'
-import { isAugeasAvailable, readTree, setValueAndSave, type AugeasNode } from './augeas'
-import { diffLines, type DiffOp } from './diff'
-
-export type { DiffOp, HistoryEntry, AugeasNode }
+import { EtcHistory } from './history'
+import { findValidator } from './validators'
+import { isAugeasAvailable, readTree, setValueAndSave } from './augeas'
+import { diffLines } from './diff'
+import type { AugeasNode, DiffOp, EtcFileDescriptor, ExecResult, HistoryEntry } from '@shared/apiTypes'
 
 /**
  * The Settings tile's Linux "no desktop settings tool" fallback: a small,
@@ -31,12 +30,6 @@ const COMMON_FILES: Array<{ label: string; path: string }> = [
   { label: 'NetworkManager', path: '/etc/NetworkManager/NetworkManager.conf' },
   { label: 'Netplan (Ubuntu)', path: '/etc/netplan/01-network-manager-all.yaml' }
 ]
-
-export interface EtcFileDescriptor {
-  label: string
-  path: string
-  exists: boolean
-}
 
 function runPlain(cmd: string, args: string[], input?: string): { ok: boolean; stdout: string; stderr: string } {
   const result = spawnSync(cmd, args, { input, encoding: 'utf-8', timeout: 15000 })

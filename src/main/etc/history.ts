@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
+import type { HistoryEntry } from '@shared/apiTypes'
 
 /**
  * Generation-based backup for every write the /etc editor makes. Kept as
@@ -11,12 +12,6 @@ import { join } from 'node:path'
 
 export function sanitizeForDirName(targetPath: string): string {
   return targetPath.replace(/[/\\:]/g, '_').replace(/^_+/, '')
-}
-
-export interface HistoryEntry {
-  timestamp: number
-  fileName: string
-  content: string
 }
 
 export class EtcHistory {

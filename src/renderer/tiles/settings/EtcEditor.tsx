@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { EtcFileDescriptor, DiffOp, HistoryEntry } from '../../../main/etc/etcService'
-import type { ExecResult } from '../../../main/etc/validators'
+import type { DiffOp, EtcFileDescriptor, ExecResult, HistoryEntry } from '@shared/apiTypes'
 
 function DiffView({ ops }: { ops: DiffOp[] }): React.JSX.Element {
   return (

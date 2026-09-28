@@ -4,23 +4,11 @@ import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
 import { pathToFileURL } from 'node:url'
 import chokidar, { type FSWatcher } from 'chokidar'
-import { sniffContent, type SniffResult } from './fileSniff'
+import { sniffContent } from './fileSniff'
+import type { DirEntry, FileInspection } from '@shared/apiTypes'
 
 export function getHomeDir(): string {
   return homedir()
-}
-
-export interface DirEntry {
-  name: string
-  path: string
-  isDirectory: boolean
-  sizeBytes: number
-  modifiedAt: number
-  createdAt: number
-  /** Dot files everywhere; on Windows also anything with the Hidden or System attribute. */
-  hidden: boolean
-  /** `ls -l` style on POSIX ("drwxr-xr-x"), PowerShell `Mode` style on Windows ("d-r--"). */
-  mode: string
 }
 
 // ---------------------------------------------------------------------------
@@ -183,18 +171,6 @@ export function createEntry(parentDir: string, name: string, kind: 'dir' | 'file
 const SNIFF_BYTES = 64 * 1024
 const TEXT_PREVIEW_BYTES = 256 * 1024
 const IMAGE_INLINE_LIMIT = 25 * 1024 * 1024
-
-export interface FileInspection extends SniffResult {
-  path: string
-  sizeBytes: number
-  /** Beginning of the file for text/code (truncated at TEXT_PREVIEW_BYTES). */
-  text?: string
-  truncated?: boolean
-  /** data: URL for images small enough to inline. */
-  dataUrl?: string
-  /** file:// URL, for media/PDF shown in a web view. */
-  fileUrl: string
-}
 
 function readPrefix(filePath: string, bytes: number): Buffer {
   const fd = openSync(filePath, 'r')

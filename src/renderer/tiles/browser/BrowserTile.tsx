@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { SEARCH_ENGINES, resolveAddressInput } from '@shared/types'
+import { SEARCH_ENGINES, resolveAddressInput } from '@shared/presets'
 import { useAppStore } from '../../store/appStore'
 import { EmbeddedWebView } from '../shared/EmbeddedWebView'
 import { useTileConfig } from '../shared/useTileConfig'

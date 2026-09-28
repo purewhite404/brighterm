@@ -1,14 +1,31 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IPC, type AppConfig, type Rect } from '@shared/types'
-import type { ShellOption } from '../main/ptyManager'
-import type { SystemSnapshot } from '../main/sysMonitor'
-import type { DirEntry, FileInspection } from '../main/fsService'
-import type { SettingsShortcut } from '../main/settingsShortcuts'
-import type { EtcFileDescriptor, DiffOp, HistoryEntry, AugeasNode } from '../main/etc/etcService'
-import type { ExecResult } from '../main/etc/validators'
-import type { PluginListItem, PluginInstallResult } from '../main/plugins/pluginHost'
-import type { Card } from '@shared/types'
-import type { CalendarEvent } from '../main/connectors/google'
+import { IPC } from '@shared/ipc'
+import type { AppConfig, Card, Rect, SystemMemorySnapshot } from '@shared/types'
+import type {
+  AgentEvent,
+  AugeasNode,
+  CalendarEvent,
+  DiffOp,
+  DirEntry,
+  EtcFileDescriptor,
+  ExecResult,
+  FileInspection,
+  HistoryEntry,
+  PluginInstallResult,
+  PluginListItem,
+  SettingsShortcut,
+  ShellOption,
+  SystemSnapshot
+} from '@shared/apiTypes'
+
+/** Listens to an event main sends; returns the unsubscribe function. */
+function subscribe<Args extends unknown[]>(channel: string, cb: (...args: Args) => void): () => void {
+  const listener = (_event: unknown, ...args: unknown[]): void => cb(...(args as Args))
+  ipcRenderer.on(channel, listener)
+  return () => {
+    ipcRenderer.removeListener(channel, listener)
+  }
+}
 
 /**
  * The only surface the renderer sees. contextIsolation is on, so this is the
@@ -29,55 +46,39 @@ const api = {
     focus: (tileId: string) => ipcRenderer.invoke(IPC.tileFocus, tileId),
     suspend: (tileId: string) => ipcRenderer.invoke(IPC.tileSuspend, tileId),
     resume: (tileId: string) => ipcRenderer.invoke(IPC.tileResume, tileId),
-    hide: (tileId: string) => ipcRenderer.invoke('tile:hide', tileId),
+    hide: (tileId: string) => ipcRenderer.invoke(IPC.tileHide, tileId),
     navigate: (tileId: string, url: string, onlyIfChanged?: boolean) =>
-      ipcRenderer.invoke('tile:navigate', tileId, url, onlyIfChanged),
-    goBack: (tileId: string) => ipcRenderer.invoke('tile:go-back', tileId),
-    goForward: (tileId: string) => ipcRenderer.invoke('tile:go-forward', tileId),
-    reload: (tileId: string) => ipcRenderer.invoke('tile:reload', tileId),
-    onNavigated: (cb: (tileId: string, state: { url: string; canGoBack: boolean; canGoForward: boolean }) => void) => {
-      const listener = (_e: unknown, tileId: string, state: { url: string; canGoBack: boolean; canGoForward: boolean }) =>
-        cb(tileId, state)
-      ipcRenderer.on('tile:navigated', listener)
-      return () => { ipcRenderer.removeListener('tile:navigated', listener) }
-    },
-    onTitleUpdated: (cb: (tileId: string, title: string) => void) => {
-      const listener = (_e: unknown, tileId: string, title: string) => cb(tileId, title)
-      ipcRenderer.on(IPC.tileTitleUpdated, listener)
-      return () => { ipcRenderer.removeListener(IPC.tileTitleUpdated, listener) }
-    },
-    onSnapshotUpdated: (cb: (tileId: string, snapshot: string | null) => void) => {
-      const listener = (_e: unknown, tileId: string, snapshot: string | null) => cb(tileId, snapshot)
-      ipcRenderer.on('tile:snapshot-updated', listener)
-      return () => { ipcRenderer.removeListener('tile:snapshot-updated', listener) }
-    }
+      ipcRenderer.invoke(IPC.tileNavigate, tileId, url, onlyIfChanged),
+    goBack: (tileId: string) => ipcRenderer.invoke(IPC.tileGoBack, tileId),
+    goForward: (tileId: string) => ipcRenderer.invoke(IPC.tileGoForward, tileId),
+    reload: (tileId: string) => ipcRenderer.invoke(IPC.tileReload, tileId),
+    onNavigated: (cb: (tileId: string, state: { url: string; canGoBack: boolean; canGoForward: boolean }) => void) =>
+      subscribe(IPC.tileNavigated, cb),
+    onTitleUpdated: (cb: (tileId: string, title: string) => void) => subscribe(IPC.tileTitleUpdated, cb),
+    onSnapshotUpdated: (cb: (tileId: string, snapshot: string | null) => void) => subscribe(IPC.tileSnapshotUpdated, cb)
   },
 
   app: {
-    restartRequired: (): Promise<boolean> => ipcRenderer.invoke('app:restart-required'),
-    relaunch: (): Promise<void> => ipcRenderer.invoke('app:relaunch'),
-    isPackaged: (): Promise<boolean> => ipcRenderer.invoke('app:is-packaged')
+    restartRequired: (): Promise<boolean> => ipcRenderer.invoke(IPC.appRestartRequired),
+    relaunch: (): Promise<void> => ipcRenderer.invoke(IPC.appRelaunch),
+    isPackaged: (): Promise<boolean> => ipcRenderer.invoke(IPC.appIsPackaged)
   },
 
   overlay: {
-    show: (): Promise<void> => ipcRenderer.invoke('overlay:show'),
-    hide: (): Promise<void> => ipcRenderer.invoke('overlay:hide')
+    show: (): Promise<void> => ipcRenderer.invoke(IPC.overlayShow),
+    hide: (): Promise<void> => ipcRenderer.invoke(IPC.overlayHide)
   },
 
   memory: {
-    onSnapshot: (cb: (snapshot: unknown) => void) => {
-      const listener = (_e: unknown, snapshot: unknown) => cb(snapshot)
-      ipcRenderer.on(IPC.memorySnapshot, listener)
-      return () => { ipcRenderer.removeListener(IPC.memorySnapshot, listener) }
-    }
+    onSnapshot: (cb: (snapshot: SystemMemorySnapshot) => void) => subscribe(IPC.memorySnapshot, cb)
   },
 
   shells: {
-    list: (): Promise<ShellOption[]> => ipcRenderer.invoke('shell:list-shells'),
-    getDefault: (): Promise<ShellOption> => ipcRenderer.invoke('shell:default-shell'),
-    openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:open-external', url),
-    openPath: (path: string): Promise<string> => ipcRenderer.invoke('shell:open-path', path),
-    showItem: (path: string): Promise<void> => ipcRenderer.invoke('shell:show-item', path)
+    list: (): Promise<ShellOption[]> => ipcRenderer.invoke(IPC.shellList),
+    getDefault: (): Promise<ShellOption> => ipcRenderer.invoke(IPC.shellDefault),
+    openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.shellOpenExternal, url),
+    openPath: (path: string): Promise<string> => ipcRenderer.invoke(IPC.shellOpenPath, path),
+    showItem: (path: string): Promise<void> => ipcRenderer.invoke(IPC.shellShowItem, path)
   },
 
   pty: {
@@ -88,16 +89,8 @@ const api = {
     write: (tileId: string, data: string) => ipcRenderer.send(IPC.ptyWrite, tileId, data),
     resize: (tileId: string, cols: number, rows: number) => ipcRenderer.send(IPC.ptyResize, tileId, cols, rows),
     kill: (tileId: string) => ipcRenderer.invoke(IPC.ptyKill, tileId),
-    onData: (cb: (tileId: string, data: string) => void) => {
-      const listener = (_e: unknown, tileId: string, data: string) => cb(tileId, data)
-      ipcRenderer.on(IPC.ptyData, listener)
-      return () => { ipcRenderer.removeListener(IPC.ptyData, listener) }
-    },
-    onExit: (cb: (tileId: string, exitCode: number) => void) => {
-      const listener = (_e: unknown, tileId: string, exitCode: number) => cb(tileId, exitCode)
-      ipcRenderer.on(IPC.ptyExit, listener)
-      return () => { ipcRenderer.removeListener(IPC.ptyExit, listener) }
-    }
+    onData: (cb: (tileId: string, data: string) => void) => subscribe(IPC.ptyData, cb),
+    onExit: (cb: (tileId: string, exitCode: number) => void) => subscribe(IPC.ptyExit, cb)
   },
 
   fs: {
@@ -108,41 +101,36 @@ const api = {
     watchStart: (watchId: string, dirPath: string): Promise<void> =>
       ipcRenderer.invoke(IPC.fsWatchStart, watchId, dirPath),
     watchStop: (watchId: string): Promise<void> => ipcRenderer.invoke(IPC.fsWatchStop, watchId),
-    homeDir: (): Promise<string> => ipcRenderer.invoke('fs:home-dir'),
-    statEntry: (filePath: string): Promise<DirEntry> => ipcRenderer.invoke('fs:stat-entry', filePath),
-    inspect: (filePath: string): Promise<FileInspection> => ipcRenderer.invoke('fs:inspect', filePath),
+    homeDir: (): Promise<string> => ipcRenderer.invoke(IPC.fsHomeDir),
+    statEntry: (filePath: string): Promise<DirEntry> => ipcRenderer.invoke(IPC.fsStatEntry, filePath),
+    inspect: (filePath: string): Promise<FileInspection> => ipcRenderer.invoke(IPC.fsInspect, filePath),
     create: (parentDir: string, name: string, kind: 'dir' | 'file'): Promise<string> =>
-      ipcRenderer.invoke('fs:create', parentDir, name, kind),
-    onChanged: (cb: (watchId: string, event: string, changedPath: string) => void) => {
-      const listener = (_e: unknown, watchId: string, event: string, changedPath: string) =>
-        cb(watchId, event, changedPath)
-      ipcRenderer.on(IPC.fsChanged, listener)
-      return () => { ipcRenderer.removeListener(IPC.fsChanged, listener) }
-    }
+      ipcRenderer.invoke(IPC.fsCreate, parentDir, name, kind),
+    onChanged: (cb: (watchId: string, event: string, changedPath: string) => void) => subscribe(IPC.fsChanged, cb)
   },
 
   sysmon: {
-    snapshot: (opts?: { processes?: boolean }): Promise<SystemSnapshot> => ipcRenderer.invoke('sysmon:snapshot', opts)
+    snapshot: (opts?: { processes?: boolean }): Promise<SystemSnapshot> => ipcRenderer.invoke(IPC.sysmonSnapshot, opts)
   },
 
   settings: {
-    getOsShortcuts: (): Promise<SettingsShortcut[]> => ipcRenderer.invoke(IPC.settingsOpenOsShortcut),
+    getOsShortcuts: (): Promise<SettingsShortcut[]> => ipcRenderer.invoke(IPC.settingsGetOsShortcuts),
     hasDesktopSettingsTool: (): Promise<boolean> => ipcRenderer.invoke(IPC.settingsHasDesktopSettingsTool),
-    openShortcut: (shortcutId: string) => ipcRenderer.send('settings:open-shortcut-by-id', shortcutId)
+    openShortcut: (shortcutId: string) => ipcRenderer.send(IPC.settingsOpenShortcut, shortcutId)
   },
 
   etc: {
-    isSupported: (): Promise<boolean> => ipcRenderer.invoke('etc:is-supported'),
+    isSupported: (): Promise<boolean> => ipcRenderer.invoke(IPC.etcIsSupported),
     listFiles: (): Promise<EtcFileDescriptor[]> => ipcRenderer.invoke(IPC.etcList),
     read: (path: string): Promise<string> => ipcRenderer.invoke(IPC.etcRead, path),
-    hasAugeas: (): Promise<boolean> => ipcRenderer.invoke('etc:has-augeas'),
-    readAugeasTree: (path: string): Promise<AugeasNode[]> => ipcRenderer.invoke('etc:read-augeas-tree', path),
+    hasAugeas: (): Promise<boolean> => ipcRenderer.invoke(IPC.etcHasAugeas),
+    readAugeasTree: (path: string): Promise<AugeasNode[]> => ipcRenderer.invoke(IPC.etcReadAugeasTree, path),
     diff: (path: string, newContent: string): Promise<DiffOp[]> => ipcRenderer.invoke(IPC.etcDiff, path, newContent),
     validate: (path: string, candidateContent: string): Promise<ExecResult | null> =>
       ipcRenderer.invoke(IPC.etcValidate, path, candidateContent),
     write: (path: string, newContent: string): Promise<ExecResult> => ipcRenderer.invoke(IPC.etcWrite, path, newContent),
     writeAugeasValue: (path: string, augPath: string, value: string): Promise<ExecResult> =>
-      ipcRenderer.invoke('etc:write-augeas-value', path, augPath, value),
+      ipcRenderer.invoke(IPC.etcWriteAugeasValue, path, augPath, value),
     history: (path: string): Promise<HistoryEntry[]> => ipcRenderer.invoke(IPC.etcHistory, path),
     restore: (path: string, fileName: string): Promise<ExecResult> =>
       ipcRenderer.invoke(IPC.etcRestore, path, fileName)
@@ -151,65 +139,45 @@ const api = {
   plugins: {
     list: (): Promise<PluginListItem[]> => ipcRenderer.invoke(IPC.pluginsList),
     validateBundle: (rawText: string): Promise<PluginInstallResult> =>
-      ipcRenderer.invoke('plugins:validate-bundle', rawText),
+      ipcRenderer.invoke(IPC.pluginsValidateBundle, rawText),
     installFromBundle: (rawText: string): Promise<PluginInstallResult> =>
       ipcRenderer.invoke(IPC.pluginsInstallFromBundle, rawText),
     setEnabled: (id: string, enabled: boolean): Promise<void> => ipcRenderer.invoke(IPC.pluginsSetEnabled, id, enabled),
     rollback: (id: string, toVersion: string): Promise<boolean> => ipcRenderer.invoke(IPC.pluginsRollback, id, toVersion),
     uninstall: (id: string): Promise<void> => ipcRenderer.invoke(IPC.pluginsUninstall, id),
-    getAppUrl: (id: string): Promise<string> => ipcRenderer.invoke('plugins:app-url', id),
+    getAppUrl: (id: string): Promise<string> => ipcRenderer.invoke(IPC.pluginsAppUrl, id),
     grantFolder: (pluginId: string, path: string): Promise<{ id: string; label: string }> =>
-      ipcRenderer.invoke('plugins:grant-folder', pluginId, path),
+      ipcRenderer.invoke(IPC.pluginsGrantFolder, pluginId, path),
     hostCall: (pluginId: string, method: string, args: unknown[]): Promise<unknown> =>
       ipcRenderer.invoke(IPC.pluginsHostCall, pluginId, method, args),
-    onChanged: (cb: () => void) => {
-      const listener = (): void => cb()
-      ipcRenderer.on('plugins:changed', listener)
-      return () => { ipcRenderer.removeListener('plugins:changed', listener) }
-    },
-    onRequestOpenTile: (cb: (builtinTypeId: string) => void) => {
-      const listener = (_e: unknown, builtinTypeId: string) => cb(builtinTypeId)
-      ipcRenderer.on('plugins:request-open-tile', listener)
-      return () => { ipcRenderer.removeListener('plugins:request-open-tile', listener) }
-    }
+    onChanged: (cb: () => void) => subscribe(IPC.pluginsChanged, cb),
+    onRequestOpenTile: (cb: (builtinTypeId: string) => void) => subscribe(IPC.pluginsRequestOpenTile, cb)
   },
 
   builder: {
-    hasApiKey: (provider: string): Promise<boolean> => ipcRenderer.invoke('builder:has-api-key', provider),
+    hasApiKey: (provider: string): Promise<boolean> => ipcRenderer.invoke(IPC.builderHasApiKey, provider),
     setApiKey: (provider: string, apiKey: string): Promise<void> =>
-      ipcRenderer.invoke('builder:set-api-key', provider, apiKey),
+      ipcRenderer.invoke(IPC.builderSetApiKey, provider, apiKey),
     runAgent: (request: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.builderAgentRun, request),
     exportKit: (): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke(IPC.builderExportKit),
-    onAgentEvent: (cb: (event: unknown) => void) => {
-      const listener = (_e: unknown, event: unknown) => cb(event)
-      ipcRenderer.on(IPC.builderAgentEvent, listener)
-      return () => { ipcRenderer.removeListener(IPC.builderAgentEvent, listener) }
-    }
+    onAgentEvent: (cb: (event: AgentEvent) => void) => subscribe(IPC.builderAgentEvent, cb)
   },
 
   google: {
-    hasClientCredentials: (): Promise<boolean> => ipcRenderer.invoke('google:has-client-credentials'),
-    isConnected: (): Promise<boolean> => ipcRenderer.invoke('google:is-connected'),
+    hasClientCredentials: (): Promise<boolean> => ipcRenderer.invoke(IPC.googleHasClientCredentials),
+    isConnected: (): Promise<boolean> => ipcRenderer.invoke(IPC.googleIsConnected),
     setClientCredentials: (clientId: string, clientSecret: string): Promise<void> =>
-      ipcRenderer.invoke('google:set-client-credentials', clientId, clientSecret),
-    connect: (): Promise<void> => ipcRenderer.invoke('google:connect'),
-    disconnect: (): Promise<void> => ipcRenderer.invoke('google:disconnect'),
+      ipcRenderer.invoke(IPC.googleSetClientCredentials, clientId, clientSecret),
+    connect: (): Promise<void> => ipcRenderer.invoke(IPC.googleConnect),
+    disconnect: (): Promise<void> => ipcRenderer.invoke(IPC.googleDisconnect),
     listEvents: (timeMinIso: string, timeMaxIso: string): Promise<CalendarEvent[]> =>
-      ipcRenderer.invoke('google:list-events', timeMinIso, timeMaxIso)
+      ipcRenderer.invoke(IPC.googleListEvents, timeMinIso, timeMaxIso)
   },
 
   hq: {
-    onCardPublished: (cb: (card: Card) => void) => {
-      const listener = (_e: unknown, card: Card) => cb(card)
-      ipcRenderer.on('hq:card-published', listener)
-      return () => { ipcRenderer.removeListener('hq:card-published', listener) }
-    },
-    onCardCleared: (cb: (cardId: string) => void) => {
-      const listener = (_e: unknown, cardId: string) => cb(cardId)
-      ipcRenderer.on('hq:card-cleared', listener)
-      return () => { ipcRenderer.removeListener('hq:card-cleared', listener) }
-    }
+    onCardPublished: (cb: (card: Card) => void) => subscribe(IPC.hqCardPublished, cb),
+    onCardCleared: (cb: (cardId: string) => void) => subscribe(IPC.hqCardCleared, cb)
   }
 }
 

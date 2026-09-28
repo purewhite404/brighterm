@@ -3,7 +3,7 @@ import { useAppStore } from '../store/appStore'
 import { BUILTIN_TILES, builtinTile, pluginTile, webTile } from '../tiles/catalog'
 import { Icon } from '../ui/Icon'
 import type { BuiltinTileType } from '@shared/types'
-import type { PluginListItem } from '../../main/plugins/pluginHost'
+import type { PluginListItem } from '@shared/apiTypes'
 
 interface PaletteItem {
   id: string

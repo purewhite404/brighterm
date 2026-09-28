@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveAddressInput, resolveMail } from './types'
+import { resolveAddressInput, resolveMail } from './presets'
 
 describe('resolveAddressInput', () => {
   it('opens full URLs as-is', () => {

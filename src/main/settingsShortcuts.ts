@@ -1,18 +1,7 @@
 import { platform } from 'node:os'
 import { spawn, spawnSync } from 'node:child_process'
 import { shell } from 'electron'
-
-/** One clickable entry in the Settings tile's OS shortcut list. */
-export interface SettingsShortcut {
-  id: string
-  label: string
-  /** A `ms-settings:` URI, an `x-apple.systempreferences:` URI, or an argv-style shell command. */
-  kind: 'uri' | 'command'
-  /** Icon name from the renderer's Icon set. */
-  icon: string
-  target: string
-  args?: string[]
-}
+import type { SettingsShortcut } from '@shared/apiTypes'
 
 const WINDOWS_SHORTCUTS: SettingsShortcut[] = [
   { id: 'system', label: 'System', icon: 'settings', kind: 'uri', target: 'ms-settings:about' },

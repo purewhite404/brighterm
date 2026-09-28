@@ -1,3 +1,4 @@
+import type { ExecResult } from '@shared/apiTypes'
 /**
  * Maps a config file to the command that can check it *without* applying it,
  * so a typo in sudoers doesn't lock the user out, a bad sshd_config doesn't
@@ -42,11 +43,6 @@ const VALIDATORS: Array<{ match: RegExp; validator: Validator }> = [
 export function findValidator(targetPath: string): Validator | null {
   const hit = VALIDATORS.find((entry) => entry.match.test(targetPath))
   return hit?.validator ?? null
-}
-
-export interface ExecResult {
-  ok: boolean
-  output: string
 }
 
 export type ExecFn = (cmd: string, args: string[]) => ExecResult
