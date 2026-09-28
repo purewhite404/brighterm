@@ -1,39 +1,21 @@
-import { test, expect, _electron as electron, type ElectronApplication, type Page } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { createServer } from 'node:http'
-import type { AddressInfo } from 'node:net'
-import { tmpdir } from 'node:os'
-import { join, resolve, dirname } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { dock, launch, launchIn, removeDir, seedWorkspace, tempDir, type Session } from './helpers'
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const MAIN_ENTRY = resolve(__dirname, '../../out/main/index.cjs')
+const filesTile = (root: string, config: object = { expandedPaths: [root] }) => ({
+  id: 'files',
+  kind: 'builtin',
+  typeId: 'file-explorer',
+  title: 'Files',
+  icon: 'folder',
+  config: { rootPath: root, ...config }
+})
 
-async function launchIn(userDataDir: string): Promise<{ app: ElectronApplication; window: Page }> {
-  const app = await electron.launch({ args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`], colorScheme: null })
-  const window = await app.firstWindow()
-  await expect(window.locator('.bt-dock')).toBeVisible({ timeout: 15_000 })
-  return { app, window }
-}
-
-const dock = (window: Page, title: string) => window.locator(`.bt-dock__button[title="${title}"]`)
-
-/** A workspace with one Files tile rooted at `root` (and optionally more tiles). */
-function seedFiles(userDataDir: string, root: string, extraTiles: Record<string, object> = {}): void {
-  const tiles: Record<string, object> = {
-    files: { id: 'files', kind: 'builtin', typeId: 'file-explorer', title: 'Files', icon: 'folder', config: { rootPath: root, expandedPaths: [root] } },
-    ...extraTiles
-  }
-  const ids = Object.keys(tiles)
-  const layout =
-    ids.length === 1
-      ? { type: 'leaf', tileId: ids[0] }
-      : { type: 'split', direction: 'row', ratio: 0.5, a: { type: 'leaf', tileId: ids[0] }, b: { type: 'leaf', tileId: ids[1] } }
-  writeFileSync(
-    join(userDataDir, 'config.json'),
-    JSON.stringify({ workspaces: [{ id: 'ws', name: 'Home', icon: 'home', layout, tiles }], activeWorkspaceId: 'ws' })
-  )
+/** A workspace with one Files tile rooted at `root`, already expanded. */
+function seedFiles(userDataDir: string, root: string): void {
+  seedWorkspace(userDataDir, { files: filesTile(root) })
 }
 
 const TINY_PNG = Buffer.from(
@@ -42,7 +24,7 @@ const TINY_PNG = Buffer.from(
 )
 
 function makeTree(): string {
-  const root = mkdtempSync(join(tmpdir(), 'brighterm-files-'))
+  const root = tempDir('brighterm-files-')
   mkdirSync(join(root, 'docs'))
   mkdirSync(join(root, '.git'))
   mkdirSync(join(root, 'WinHidden'))
@@ -58,12 +40,64 @@ function makeTree(): string {
   return root
 }
 
+/** A silent mono 8 kHz WAV, 0.1 s long by default. */
+function wav(samples = 800): Buffer {
+  const b = Buffer.alloc(44 + samples)
+  b.write('RIFF', 0)
+  b.writeUInt32LE(36 + samples, 4)
+  b.write('WAVEfmt ', 8)
+  b.writeUInt32LE(16, 16)
+  b.writeUInt16LE(1, 20)
+  b.writeUInt16LE(1, 22)
+  b.writeUInt32LE(8000, 24)
+  b.writeUInt32LE(8000, 28)
+  b.writeUInt16LE(1, 32)
+  b.writeUInt16LE(8, 34)
+  b.write('data', 36)
+  b.writeUInt32LE(samples, 40)
+  b.fill(128, 44)
+  return b
+}
+
 const names = (w: Page) => w.locator('.bt-file-row__name').allTextContents()
 const row = (w: Page, name: string) => w.locator('.bt-file-row').filter({ has: w.getByText(name, { exact: true }) })
 
+test('Files: the expanded tree is restored after a restart', async () => {
+  const root = tempDir('brighterm-tree-')
+  mkdirSync(join(root, 'alpha', 'inner'), { recursive: true })
+  mkdirSync(join(root, 'beta'))
+  writeFileSync(join(root, 'alpha', 'inner', 'deep.txt'), '')
+  const dir = tempDir()
+  seedWorkspace(dir, { files: filesTile(root, {}) })
+  let s: Session = await launchIn(dir)
+  try {
+    await expect.poll(() => names(s.window)).toEqual([root])
+    await s.window.locator('.bt-file-row').first().click()
+    await row(s.window, 'alpha').click()
+    await row(s.window, 'inner').click()
+    const expanded = [root, 'alpha', 'inner', 'deep.txt', 'beta']
+    await expect.poll(() => names(s.window)).toEqual(expanded)
+
+    await s.app.close()
+    s = await launchIn(dir)
+    await expect.poll(() => names(s.window), { timeout: 10_000 }).toEqual(expanded)
+
+    // Collapsing is remembered too.
+    await row(s.window, 'alpha').click()
+    await expect.poll(() => names(s.window)).toEqual([root, 'alpha', 'beta'])
+    await s.app.close()
+    s = await launchIn(dir)
+    await expect.poll(() => names(s.window), { timeout: 10_000 }).toEqual([root, 'alpha', 'beta'])
+  } finally {
+    await s.app.close()
+    removeDir(dir)
+    removeDir(root)
+  }
+})
+
 test('Files: hidden entries are hidden by default, ls-style columns are shown, settings toggle them', async () => {
   const root = makeTree()
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  const dir = tempDir()
   seedFiles(dir, root)
   const s = await launchIn(dir)
   try {
@@ -95,14 +129,14 @@ test('Files: hidden entries are hidden by default, ls-style columns are shown, s
     expect(files[0]).toBe('pixel.png') // the largest file
   } finally {
     await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    removeDir(dir)
+    removeDir(root)
   }
 })
 
 test('Files: creates a folder and an empty file in the selected folder', async () => {
   const root = makeTree()
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  const dir = tempDir()
   seedFiles(dir, root)
   const s = await launchIn(dir)
   try {
@@ -124,14 +158,14 @@ test('Files: creates a folder and an empty file in the selected folder', async (
     await expect(settings).toContainText('同じ名前がすでにあります')
   } finally {
     await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    removeDir(dir)
+    removeDir(root)
   }
 })
 
 test('Files: plain text opens in Notes for editing; code, HTML and images are previewed', async () => {
   const root = makeTree()
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  const dir = tempDir()
   seedFiles(dir, root)
   const s = await launchIn(dir)
   try {
@@ -164,31 +198,28 @@ test('Files: plain text opens in Notes for editing; code, HTML and images are pr
     await expect(preview.locator('img.bt-files__image')).toBeVisible()
   } finally {
     await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    removeDir(dir)
+    removeDir(root)
   }
 })
 
 test('Files: on a narrow tile the settings sit behind a gear button', async () => {
   const root = makeTree()
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  const dir = tempDir()
   // Four tiles → each is a quarter of the window, narrower than the wide threshold.
-  const term = (id: string) => ({ id, kind: 'builtin', typeId: 'calendar', title: 'Calendar', icon: 'calendar' })
-  const tiles = {
-    files: { id: 'files', kind: 'builtin', typeId: 'file-explorer', title: 'Files', icon: 'folder', config: { rootPath: root, expandedPaths: [root] } },
-    c1: term('c1'),
-    c2: term('c2'),
-    c3: term('c3')
-  }
+  const calendar = (id: string) => ({ id, kind: 'builtin', typeId: 'calendar', title: 'Calendar', icon: 'calendar' })
   const leaf = (id: string) => ({ type: 'leaf', tileId: id })
-  const layout = {
-    type: 'split',
-    direction: 'column',
-    ratio: 0.5,
-    a: { type: 'split', direction: 'row', ratio: 0.5, a: leaf('files'), b: leaf('c1') },
-    b: { type: 'split', direction: 'row', ratio: 0.5, a: leaf('c2'), b: leaf('c3') }
-  }
-  writeFileSync(join(dir, 'config.json'), JSON.stringify({ workspaces: [{ id: 'ws', name: 'Home', icon: 'home', layout, tiles }], activeWorkspaceId: 'ws' }))
+  seedWorkspace(
+    dir,
+    { files: filesTile(root), c1: calendar('c1'), c2: calendar('c2'), c3: calendar('c3') },
+    {
+      type: 'split',
+      direction: 'column',
+      ratio: 0.5,
+      a: { type: 'split', direction: 'row', ratio: 0.5, a: leaf('files'), b: leaf('c1') },
+      b: { type: 'split', direction: 'row', ratio: 0.5, a: leaf('c2'), b: leaf('c3') }
+    }
+  )
   const s = await launchIn(dir)
   try {
     await s.app.evaluate(({ BaseWindow }) => {
@@ -205,15 +236,15 @@ test('Files: on a narrow tile the settings sit behind a gear button', async () =
     await expect(settings).toBeInViewport()
   } finally {
     await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    removeDir(dir)
+    removeDir(root)
   }
 })
 
 for (const count of [4, 9, 16]) {
   test(`Files: in a 1/${count} tile the preview fits inside the tile next to the tree`, async () => {
     const root = makeTree()
-    const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+    const dir = tempDir()
     seedFiles(dir, root)
     const s = await launchIn(dir)
     try {
@@ -240,121 +271,32 @@ for (const count of [4, 9, 16]) {
       }
     } finally {
       await s.app.close()
-      rmSync(dir, { recursive: true, force: true })
-      rmSync(root, { recursive: true, force: true })
+      removeDir(dir)
+      removeDir(root)
     }
   })
 }
 
-test('Terminal: the last row is fully inside the tile', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
-  const s = await launchIn(dir)
-  try {
-    await dock(s.window, 'Terminal').click()
-    await expect(s.window.locator('.xterm-rows')).toContainText(/\S/, { timeout: 15_000 })
-    await s.window.waitForTimeout(500)
-    const { screenBottom, tileBottom, rowHeight } = await s.window.evaluate(() => {
-      const screen = document.querySelector('.xterm-screen')!.getBoundingClientRect()
-      const tile = document.querySelector('.bt-terminal-tile')!.getBoundingClientRect()
-      const rows = document.querySelector('.xterm-rows')!.children
-      return { screenBottom: screen.bottom, tileBottom: tile.bottom, rowHeight: screen.height / rows.length }
-    })
-    expect(rowHeight).toBeGreaterThan(5)
-    expect(screenBottom).toBeLessThanOrEqual(tileBottom)
-  } finally {
-    await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('App memory is reported every 0.5 s', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
-  const s = await launchIn(dir)
-  try {
-    const count = await s.window.evaluate(
-      () =>
-        new Promise<number>((done) => {
-          let n = 0
-          const off = window.api.memory.onSnapshot(() => n++)
-          setTimeout(() => {
-            off()
-            done(n)
-          }, 2600)
-        })
-    )
-    expect(count).toBeGreaterThanOrEqual(4)
-    await expect(s.window.locator('.bt-statusbar')).not.toContainText('/ 1.50 GB')
-  } finally {
-    await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test('Web pages get the same 8px scrollbar as built-in tiles, overriding the site', async () => {
-  const server = createServer((_req, res) => {
-    res.setHeader('content-type', 'text/html')
-    res.end(`<style>::-webkit-scrollbar{width:20px} #box{scrollbar-color:red blue}</style>
-      <div id="box" style="width:200px;height:100px;overflow:scroll"><div style="height:1000px"></div></div>`)
-  })
-  await new Promise<void>((r) => server.listen(0, '127.0.0.1', r))
-  const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
-  const s = await launchIn(dir)
-  try {
-    await dock(s.window, 'Browser').click()
-    const address = s.window.locator('.bt-browser__address')
-    await address.fill(url)
-    await address.press('Enter')
-    const measure = () =>
-      s.app.evaluate(({ BaseWindow }) => {
-        const view = BaseWindow.getAllWindows()[0].contentView.children[1] as Electron.WebContentsView
-        return view.webContents.executeJavaScript('(() => { const b = document.getElementById("box"); return b ? b.offsetWidth - b.clientWidth : -1 })()')
-      })
-    await expect.poll(measure, { timeout: 10_000 }).toBe(8)
-  } finally {
-    await s.app.close()
-    server.close()
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-/** A silent mono 8 kHz WAV, 0.1 s long by default. */
-function wav(samples = 800): Buffer {
-  const b = Buffer.alloc(44 + samples)
-  b.write('RIFF', 0)
-  b.writeUInt32LE(36 + samples, 4)
-  b.write('WAVEfmt ', 8)
-  b.writeUInt32LE(16, 16)
-  b.writeUInt16LE(1, 20)
-  b.writeUInt16LE(1, 22)
-  b.writeUInt32LE(8000, 24)
-  b.writeUInt32LE(8000, 28)
-  b.writeUInt16LE(1, 32)
-  b.writeUInt16LE(8, 34)
-  b.write('data', 36)
-  b.writeUInt32LE(samples, 40)
-  b.fill(128, 44)
-  return b
-}
-
 test('Files: PDF / audio previews follow the clicked file; the Files tile keeps its name', async () => {
   const root = makeTree()
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  const dir = tempDir()
   seedFiles(dir, root)
   // Make real PDFs with Chromium first (a throwaway launch), so the tree lists them from the start.
-  const gen = await electron.launch({ args: [MAIN_ENTRY, `--user-data-dir=${mkdtempSync(join(tmpdir(), 'brighterm-gen-'))}`] })
-  await gen.firstWindow()
-  for (const name of ['report', 'second']) {
-    const pdf64 = await gen.evaluate(async ({ BrowserWindow }, title) => {
-      const w = new BrowserWindow({ show: false })
-      await w.loadURL(`data:text/html,<h1>${title}</h1>`)
-      const data = await w.webContents.printToPDF({})
-      w.destroy()
-      return data.toString('base64')
-    }, name)
-    writeFileSync(join(root, `${name}.pdf`), Buffer.from(pdf64, 'base64'))
+  const gen = await launch()
+  try {
+    for (const name of ['report', 'second']) {
+      const pdf64 = await gen.app.evaluate(async ({ BrowserWindow }, title) => {
+        const w = new BrowserWindow({ show: false })
+        await w.loadURL(`data:text/html,<h1>${title}</h1>`)
+        const data = await w.webContents.printToPDF({})
+        w.destroy()
+        return data.toString('base64')
+      }, name)
+      writeFileSync(join(root, `${name}.pdf`), Buffer.from(pdf64, 'base64'))
+    }
+  } finally {
+    await gen.cleanup()
   }
-  await gen.close()
   writeFileSync(join(root, 'beep.wav'), wav())
 
   const s = await launchIn(dir)
@@ -378,10 +320,13 @@ test('Files: PDF / audio previews follow the clicked file; the Files tile keeps 
     await expect(preview).toContainText('PDF document')
     await expect.poll(async () => (await previewView()).url, { timeout: 10_000 }).toMatch(/report\.pdf$/)
     await expect.poll(async () => (await previewView()).painted, { timeout: 10_000 }).toBeGreaterThan(100)
-    const pane = await preview.locator('.bt-files__media').boundingBox()
-    const { bounds } = await previewView()
-    expect(Math.abs(bounds!.x - pane!.x)).toBeLessThanOrEqual(2)
-    expect(Math.abs(bounds!.width - pane!.width)).toBeLessThanOrEqual(2)
+    // The view is drawn over its placeholder (polled: the side panel may still be settling).
+    const offset = async (): Promise<number> => {
+      const pane = (await preview.locator('.bt-files__media').boundingBox())!
+      const { bounds } = await previewView()
+      return Math.max(Math.abs(bounds!.x - pane.x), Math.abs(bounds!.width - pane.width))
+    }
+    await expect.poll(offset).toBeLessThanOrEqual(2)
 
     // The user's report: every later file kept showing the first one.
     for (const name of ['second.pdf', 'beep.wav', 'report.pdf']) {
@@ -394,15 +339,15 @@ test('Files: PDF / audio previews follow the clicked file; the Files tile keeps 
     await expect(s.window.locator('.bt-tile__title')).toHaveText('Files')
   } finally {
     await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    removeDir(dir)
+    removeDir(root)
   }
 })
 
 test('Files: audio/video previews do not autoplay and stop when another file is selected', async () => {
   const root = makeTree()
   writeFileSync(join(root, 'long.wav'), wav(8000 * 5))
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  const dir = tempDir()
   seedFiles(dir, root)
   const s = await launchIn(dir)
   const inPreview = <T,>(script: string) =>
@@ -431,8 +376,8 @@ test('Files: audio/video previews do not autoplay and stop when another file is 
     await expect.poll(() => inPreview<string>('location.href')).toBe('about:blank')
   } finally {
     await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    removeDir(dir)
+    removeDir(root)
   }
 })
 
@@ -440,7 +385,7 @@ test('Files: after the user has clicked play in one preview, the next file still
   const root = makeTree()
   writeFileSync(join(root, 'one.wav'), wav(8000 * 5))
   writeFileSync(join(root, 'two.wav'), wav(8000 * 5))
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  const dir = tempDir()
   seedFiles(dir, root)
   const s = await launchIn(dir)
   const media = () =>
@@ -473,8 +418,8 @@ test('Files: after the user has clicked play in one preview, the next file still
     expect((await media())?.paused).toBe(true)
   } finally {
     await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
+    removeDir(dir)
+    removeDir(root)
   }
 })
 
@@ -482,7 +427,7 @@ test('Files: a .tar.xz is described by its format, not as "data"', async () => {
   const root = makeTree()
   execFileSync('tar', ['-cJf', 'bundle.tar.xz', 'memo.txt'], { cwd: root })
   execFileSync('tar', ['-cf', 'plain.tar', 'memo.txt'], { cwd: root })
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  const dir = tempDir()
   seedFiles(dir, root)
   const s = await launchIn(dir)
   try {
@@ -493,52 +438,7 @@ test('Files: a .tar.xz is described by its format, not as "data"', async () => {
     await expect(preview.locator('.bt-files__preview-meta')).toContainText('POSIX tar archive')
   } finally {
     await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
-test('Notes: on a small tile the file list folds away and opens on demand; on a big one it can be hidden', async () => {
-  const folder = mkdtempSync(join(tmpdir(), 'brighterm-notes-'))
-  writeFileSync(join(folder, 'a.md'), 'note A')
-  writeFileSync(join(folder, 'b.md'), 'note B')
-  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
-  const s = await launchIn(dir)
-  try {
-    await s.app.evaluate(({ dialog }, d) => {
-      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [d] })) as typeof dialog.showOpenDialog
-    }, folder)
-    await dock(s.window, 'Notes').click()
-    const notes = s.window.frameLocator('iframe.bt-plugin-frame')
-    await notes.locator('#pick-folder').click()
-    await expect(notes.locator('#content')).toHaveValue('note A')
-
-    // Big tile: the list is a column; the button hides and shows it.
-    const sidebar = notes.locator('#sidebar')
-    await expect(sidebar).toBeVisible()
-    await notes.locator('#toggle-sidebar').click()
-    await expect(sidebar).toBeHidden()
-    await notes.locator('#toggle-sidebar').click()
-    await expect(sidebar).toBeVisible()
-
-    // Small tile (1/9): folded away, the editor gets the width.
-    for (let i = 1; i < 9; i++) await dock(s.window, 'Calendar').click()
-    await expect(sidebar).toBeHidden()
-    const frame = (await s.window.locator('iframe.bt-plugin-frame').boundingBox())!
-    expect(frame.width).toBeLessThan(560)
-    const editor = (await notes.locator('#content').boundingBox())!
-    expect(editor.width).toBeGreaterThan(frame.width * 0.8)
-
-    // Opens over the editor; picking a note closes it again.
-    await notes.locator('#toggle-sidebar').click()
-    await expect(sidebar).toBeVisible()
-    await expect(sidebar).toBeInViewport()
-    await notes.locator('.file-row', { hasText: 'b' }).click()
-    await expect(notes.locator('#content')).toHaveValue('note B')
-    await expect(sidebar).toBeHidden()
-  } finally {
-    await s.app.close()
-    rmSync(dir, { recursive: true, force: true })
-    rmSync(folder, { recursive: true, force: true })
+    removeDir(dir)
+    removeDir(root)
   }
 })
