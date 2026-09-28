@@ -4,7 +4,7 @@ import type { AgentEvent } from '@shared/apiTypes'
  * Only an OpenAI (and OpenAI-compatible / local LLM) implementation exists
  * today — see providers/openai.ts — but every provider plugs in through
  * this same interface, so adding Anthropic/Gemini later doesn't touch the
- * tool-calling loop or the IPC wiring in main/index.ts.
+ * tool-calling loop or the IPC wiring in builder/ipc.ts.
  */
 
 export interface AgentToolDef {

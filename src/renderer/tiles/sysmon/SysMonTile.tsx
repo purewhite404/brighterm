@@ -12,7 +12,7 @@ const HISTORY_MS = 60 * 1000
 /** Listing processes costs far more than CPU/memory, so the process list refreshes less often. */
 const PROCESS_POLL_MS = 3000
 
-/** Rows that aren't a tile of their own (see main/appMemory.ts). */
+/** Rows that aren't a tile of their own (see main/sysmon/appMemory.ts). */
 const APP_ROW_NAMES: Record<string, string> = {
   __shell: 'UI・内蔵タイル（Terminal, Files, Notes など）',
   __core: 'メイン・GPU ほか'

@@ -1,527 +1,140 @@
-import { app, BaseWindow, WebContentsView, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { app } from 'electron'
 import { join } from 'node:path'
-import { is } from './utils/env'
+import { IPC } from '@shared/ipc'
 import { ConfigStore } from './configStore'
-import { ViewManager } from './viewManager'
-import { PtyManager, listAvailableShells, defaultShell } from './ptyManager'
-import {
-  FsWatchRegistry,
-  createEntry,
-  getHomeDir,
-  inspectFile,
-  listDir,
-  readTextFile,
-  statEntry,
-  writeTextFile
-} from './fsService'
-import { getSystemSnapshot } from './sysMonitor'
-import { summarizeAppMemory } from './appMemory'
-import { EtcService } from './etc/etcService'
-import { getShortcutsForOs, openShortcut, detectLinuxDesktopSettingsTool } from './settingsShortcuts'
-import { PluginHost } from './plugins/pluginHost'
-import { PluginHostApiBridge } from './plugins/hostApiBridge'
-import { parseBundle } from './plugins/bundleParser'
-import { installBundledPlugins } from './plugins/bootstrapBundled'
-import { handleId } from './plugins/handleUtil'
-import { registerPluginSchemeAsPrivileged, registerPluginProtocolHandler, pluginAppUrl } from './plugins/protocol'
-import { GoogleCredentialsStore } from './connectors/googleCredentialsStore'
-import { GoogleConnector } from './connectors/google'
 import { createSafeStorageCrypto } from './cryptoAdapter'
 import { SecretStore } from './secretStore'
-import { AgentToolRunner, AGENT_TOOL_DEFS } from './builder/agentTools'
-import { buildAgentSystemPrompt } from './builder/systemPrompt'
-import { OpenAiAgentProvider } from './builder/providers/openai'
-import { cpSync, mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { IPC } from '@shared/ipc'
-import type { AppConfig, Card, Rect, WebTheme } from '@shared/types'
+import { applyWebTheme, registerAppIpc } from './appIpc'
+import { createMainWindow, focusMainWindow, getMainWindow, send, shellProcessId } from './window'
+import { ViewManager } from './views/viewManager'
+import { registerViewsIpc } from './views/ipc'
+import { startMemoryLoop } from './views/memoryLoop'
+import { PtyManager } from './terminal/ptyManager'
+import { registerTerminalIpc } from './terminal/ipc'
+import { FsWatchRegistry } from './files/fsService'
+import { registerFilesIpc } from './files/ipc'
+import { registerSysmonIpc } from './sysmon/ipc'
+import { EtcService } from './settings/etc/etcService'
+import { registerSettingsIpc } from './settings/ipc'
+import { PluginHost } from './plugins/pluginHost'
+import { PluginHostApiBridge } from './plugins/hostApiBridge'
+import { installBundledPlugins } from './plugins/bootstrapBundled'
+import { registerPluginSchemeAsPrivileged, registerPluginProtocolHandler } from './plugins/protocol'
+import { registerPluginsIpc } from './plugins/ipc'
+import { GoogleConnector } from './google/google'
+import { GoogleCredentialsStore } from './google/googleCredentialsStore'
+import { registerGoogleIpc } from './google/ipc'
+import { registerBuilderIpc } from './builder/ipc'
+
+/*
+ * Boots the app: what has to happen before app.ready, then every service,
+ * each feature's IPC (the ipc.ts in each folder), the window and the
+ * background loops.
+ */
 
 // Single instance: a second launch just focuses the existing window instead
 // of opening a duplicate command HQ. app.quit() doesn't stop this process
-// right away, so the second instance must also skip the startup below —
+// right away, so the second instance must also skip all of the startup —
 // otherwise it reinstalls the bundled plugins under the running instance,
 // opens a window and flushes its stale copy of config.json before exiting.
-const isPrimaryInstance = app.requestSingleInstanceLock()
-if (!isPrimaryInstance) {
+if (!app.requestSingleInstanceLock()) {
   app.quit()
+} else {
+  boot()
 }
 
-// Must run before app.ready.
-registerPluginSchemeAsPrivileged()
+function boot(): void {
+  // Must run before app.ready.
+  registerPluginSchemeAsPrivileged()
 
-// Config is read before app.ready (app.getPath works this early) because
-// Chromium's forced dark mode can only be switched on at startup.
-const configStore = new ConfigStore()
-/** The web theme this process started with — force-dark can't change without a restart. */
-const startupWebTheme = configStore.get().appearance.webTheme
-if (startupWebTheme === 'force-dark') {
-  // Chromium's "Auto Dark Mode for Web Contents": darkens pages that have no
-  // dark theme of their own. Set through Blink's settings directly — the
-  // WebContentsForceDark feature flag alone had no effect in this Electron.
-  app.commandLine.appendSwitch('blink-settings', 'forceDarkModeEnabled=true')
-}
-
-/** Tells every embedded page which color scheme to prefer (takes effect immediately). */
-function applyWebTheme(theme: WebTheme): void {
-  nativeTheme.themeSource = theme === 'light' ? 'light' : theme === 'system' ? 'system' : 'dark'
-}
-
-let mainWindow: BaseWindow | null = null
-let shellView: WebContentsView | null = null
-let viewManager: ViewManager
-let ptyManager: PtyManager
-let etcService: EtcService
-let pluginHost: PluginHost
-let hostApiBridge: PluginHostApiBridge
-let googleConnector: GoogleConnector
-let googlePollTimer: NodeJS.Timeout | null = null
-let lastGoogleCardIds: Set<string> = new Set()
-let secretStore: SecretStore
-const fsWatchers = new FsWatchRegistry()
-
-/** Also the System Monitor's refresh rate for app memory. getAppMetrics() is cheap. */
-const MEMORY_TICK_MS = 500
-
-function send(channel: string, ...args: unknown[]): void {
-  shellView?.webContents.send(channel, ...args)
-}
-
-function createWindow(): void {
-  mainWindow = new BaseWindow({
-    width: 1400,
-    height: 900,
-    minWidth: 800,
-    minHeight: 600,
-    show: false,
-    backgroundColor: '#0e0f13',
-    autoHideMenuBar: true
-  })
-
-  shellView = new WebContentsView({
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.cjs'),
-      contextIsolation: true,
-      sandbox: false,
-      nodeIntegration: false
-    }
-  })
-  mainWindow.contentView.addChildView(shellView)
-  resizeShellView()
-
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    shellView.webContents.loadURL(process.env['ELECTRON_RENDERER_URL'])
-    shellView.webContents.openDevTools({ mode: 'detach' })
-  } else {
-    shellView.webContents.loadFile(join(__dirname, '../renderer/index.html'))
+  // Config is read before app.ready (app.getPath works this early) because
+  // Chromium's forced dark mode can only be switched on at startup.
+  const configStore = new ConfigStore()
+  /** The web theme this process started with — force-dark can't change without a restart. */
+  const startupWebTheme = configStore.get().appearance.webTheme
+  if (startupWebTheme === 'force-dark') {
+    // Chromium's "Auto Dark Mode for Web Contents": darkens pages that have no
+    // dark theme of their own. Set through Blink's settings directly — the
+    // WebContentsForceDark feature flag alone had no effect in this Electron.
+    app.commandLine.appendSwitch('blink-settings', 'forceDarkModeEnabled=true')
   }
 
-  mainWindow.on('resize', resizeShellView)
-  mainWindow.on('closed', () => {
-    mainWindow = null
-  })
-  // BaseWindow has no 'ready-to-show' (that's BrowserWindow-only); show once the shell has painted.
-  shellView.webContents.once('did-finish-load', () => mainWindow?.show())
+  const fsWatchers = new FsWatchRegistry()
+  let viewManager: ViewManager | undefined
+  let ptyManager: PtyManager | undefined
+  let stopGooglePolling: (() => void) | undefined
 
-  // Any link a tile or the shell wants to open externally goes to the OS browser.
-  shellView.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
-    return { action: 'deny' }
-  })
-}
+  app.whenReady().then(() => {
+    applyWebTheme(configStore.get().appearance.webTheme)
+    const userData = app.getPath('userData')
 
-function resizeShellView(): void {
-  if (!mainWindow || !shellView) return
-  const bounds = mainWindow.getContentBounds()
-  shellView.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height })
-}
-
-function registerIpcHandlers(): void {
-  ipcMain.handle(IPC.configGet, () => configStore.get())
-  ipcMain.handle(IPC.configSet, (_event, patch: Partial<AppConfig>) => {
-    const next = configStore.set(patch)
-    if (patch.appearance) applyWebTheme(next.appearance.webTheme)
-    return next
-  })
-  ipcMain.handle(IPC.appRestartRequired, () => {
-    // Only switching force-dark on or off needs a restart.
-    const now = configStore.get().appearance.webTheme
-    return (now === 'force-dark') !== (startupWebTheme === 'force-dark')
-  })
-  ipcMain.handle(IPC.appRelaunch, () => {
-    configStore.flush()
-    app.relaunch()
-    app.exit(0)
-  })
-  ipcMain.handle(IPC.appIsPackaged, () => app.isPackaged)
-
-  ipcMain.handle(IPC.tileCreate, (_event, args: { tileId: string; kind: string; url?: string; partitionId?: string; compactCss?: string }) => {
-    if (args.kind === 'web' || args.kind === 'plugin') {
-      if (!args.url || !args.partitionId) return
-      viewManager.create(args.tileId, args.url, args.partitionId, args.compactCss)
-    }
-  })
-  ipcMain.handle(IPC.tileClose, async (_event, tileId: string) => {
-    await viewManager.close(tileId)
-    ptyManager.kill(tileId)
-    fsWatchers.stop(tileId)
-  })
-  ipcMain.handle(IPC.tileSetBounds, (_event, tileId: string, rect: Rect) => {
-    viewManager.setBounds(tileId, rect)
-  })
-  ipcMain.handle(IPC.tileFocus, (_event, tileId: string) => {
-    viewManager.markActive(tileId)
-  })
-  ipcMain.handle(IPC.tileSuspend, async (_event, tileId: string) => {
-    await viewManager.suspend(tileId)
-  })
-  ipcMain.handle(IPC.tileHide, (_event, tileId: string) => viewManager.hide(tileId))
-  ipcMain.handle(IPC.tileNavigate, (_event, tileId: string, url: string, onlyIfChanged?: boolean) =>
-    viewManager.navigate(tileId, url, onlyIfChanged)
-  )
-  ipcMain.handle(IPC.tileGoBack, (_event, tileId: string) => viewManager.goBack(tileId))
-  ipcMain.handle(IPC.tileGoForward, (_event, tileId: string) => viewManager.goForward(tileId))
-  ipcMain.handle(IPC.tileReload, (_event, tileId: string) => viewManager.reload(tileId))
-  ipcMain.handle(IPC.tileResume, (_event, tileId: string) => {
-    viewManager.resume(tileId)
-  })
-  ipcMain.handle(IPC.overlayShow, async () => {
-    await viewManager.hideAllForOverlay()
-  })
-  ipcMain.handle(IPC.overlayHide, () => {
-    viewManager.showAllAfterOverlay()
-  })
-
-  ipcMain.handle(IPC.shellList, () => listAvailableShells())
-  ipcMain.handle(IPC.shellDefault, () => defaultShell())
-
-  ipcMain.handle(IPC.ptyCreate, (_event, tileId: string, opts: { shellId?: string; cwd?: string; cols: number; rows: number }) => {
-    return ptyManager.create(tileId, opts)
-  })
-  ipcMain.on(IPC.ptyWrite, (_event, tileId: string, data: string) => ptyManager.write(tileId, data))
-  ipcMain.on(IPC.ptyResize, (_event, tileId: string, cols: number, rows: number) =>
-    ptyManager.resize(tileId, cols, rows)
-  )
-  ipcMain.handle(IPC.ptyKill, (_event, tileId: string) => ptyManager.kill(tileId))
-
-  ipcMain.handle(IPC.fsListDir, (_event, dirPath: string) => listDir(dirPath))
-  ipcMain.handle(IPC.fsReadFile, (_event, filePath: string) => readTextFile(filePath))
-  ipcMain.handle(IPC.fsWriteFile, (_event, filePath: string, content: string) => writeTextFile(filePath, content))
-  ipcMain.handle(IPC.fsWatchStart, (_event, watchId: string, dirPath: string) => {
-    fsWatchers.watch(watchId, dirPath, (event, changedPath) => {
-      send(IPC.fsChanged, watchId, event, changedPath)
-    })
-  })
-  ipcMain.handle(IPC.fsWatchStop, (_event, watchId: string) => fsWatchers.stop(watchId))
-  ipcMain.handle(IPC.fsHomeDir, () => getHomeDir())
-  ipcMain.handle(IPC.fsStatEntry, (_event, filePath: string) => statEntry(filePath))
-  ipcMain.handle(IPC.fsInspect, (_event, filePath: string) => inspectFile(filePath))
-  ipcMain.handle(IPC.fsCreate, (_event, parentDir: string, name: string, kind: 'dir' | 'file') =>
-    createEntry(parentDir, name, kind)
-  )
-
-  ipcMain.handle(IPC.sysmonSnapshot, (_event, opts?: { processes?: boolean }) => getSystemSnapshot(opts))
-
-  ipcMain.handle(IPC.shellOpenExternal, (_event, url: string) => shell.openExternal(url))
-  ipcMain.handle(IPC.shellOpenPath, (_event, path: string) => shell.openPath(path))
-  ipcMain.handle(IPC.shellShowItem, (_event, path: string) => shell.showItemInFolder(path))
-
-  ipcMain.handle(IPC.settingsGetOsShortcuts, () => getShortcutsForOs())
-  ipcMain.handle(IPC.settingsHasDesktopSettingsTool, () => detectLinuxDesktopSettingsTool() !== null)
-  ipcMain.on(IPC.settingsOpenShortcut, (_event, shortcutId: string) => {
-    const shortcut = getShortcutsForOs().find((s) => s.id === shortcutId)
-    if (shortcut) openShortcut(shortcut)
-  })
-
-  ipcMain.handle(IPC.etcList, () => etcService.listCommonFiles())
-  ipcMain.handle(IPC.etcRead, (_event, path: string) => etcService.readFile(path))
-  ipcMain.handle(IPC.etcIsSupported, () => etcService.isSupported())
-  ipcMain.handle(IPC.etcHasAugeas, () => etcService.hasAugeas())
-  ipcMain.handle(IPC.etcReadAugeasTree, (_event, path: string) => etcService.readAugeasTree(path))
-  ipcMain.handle(IPC.etcDiff, (_event, path: string, newContent: string) => etcService.preview(path, newContent))
-  ipcMain.handle(IPC.etcValidate, (_event, path: string, candidateContent: string) =>
-    etcService.validate(path, candidateContent)
-  )
-  ipcMain.handle(IPC.etcWrite, (_event, path: string, newContent: string) => etcService.writeFile(path, newContent))
-  ipcMain.handle(IPC.etcWriteAugeasValue, (_event, path: string, augPath: string, value: string) =>
-    etcService.writeAugeasValue(path, augPath, value)
-  )
-  ipcMain.handle(IPC.etcHistory, (_event, path: string) => etcService.listHistory(path))
-  ipcMain.handle(IPC.etcRestore, (_event, path: string, fileName: string) => etcService.restore(path, fileName))
-
-  ipcMain.handle(IPC.pluginsList, () => pluginHost.list())
-  ipcMain.handle(IPC.pluginsValidateBundle, (_event, rawText: string) => {
-    const parsed = parseBundle(rawText)
-    if (!parsed.ok) return { ok: false, errors: parsed.errors.map((message) => ({ message })), warnings: [] }
-    return pluginHost.validate(parsed.files)
-  })
-  ipcMain.handle(IPC.pluginsInstallFromBundle, (_event, rawText: string) => {
-    const parsed = parseBundle(rawText)
-    if (!parsed.ok) return { ok: false, errors: parsed.errors.map((message) => ({ message })), warnings: [] }
-    const result = pluginHost.install(parsed.files)
-    if (result.ok) send(IPC.pluginsChanged)
-    return result
-  })
-  ipcMain.handle(IPC.pluginsSetEnabled, (_event, id: string, enabled: boolean) => {
-    pluginHost.setEnabled(id, enabled)
-    send(IPC.pluginsChanged)
-  })
-  ipcMain.handle(IPC.pluginsRollback, (_event, id: string, toVersion: string) => {
-    const ok = pluginHost.rollback(id, toVersion)
-    if (ok) send(IPC.pluginsChanged)
-    return ok
-  })
-  ipcMain.handle(IPC.pluginsUninstall, (_event, id: string) => {
-    pluginHost.uninstall(id)
-    send(IPC.pluginsChanged)
-  })
-  ipcMain.handle(IPC.pluginsAppUrl, (_event, id: string) => pluginAppUrl(id))
-  ipcMain.handle(IPC.pluginsGrantFolder, (_event, pluginId: string, path: string) =>
-    hostApiBridge.grantFolder(pluginId, path)
-  )
-  ipcMain.handle(
-    IPC.pluginsHostCall,
-    async (_event, pluginId: string, method: string, args: unknown[]) => callHostApi(pluginId, method, args)
-  )
-
-  ipcMain.handle(IPC.googleHasClientCredentials, () => googleConnector.hasClientCredentials())
-  ipcMain.handle(IPC.googleIsConnected, () => googleConnector.isConnected())
-  ipcMain.handle(IPC.googleSetClientCredentials, (_event, clientId: string, clientSecret: string) => {
-    googleConnector.setClientCredentials(clientId, clientSecret)
-  })
-  ipcMain.handle(IPC.googleConnect, async () => {
-    await googleConnector.connect()
-    await pollGoogleCards()
-  })
-  ipcMain.handle(IPC.googleListEvents, (_event, timeMinIso: string, timeMaxIso: string) =>
-    googleConnector.listEvents(timeMinIso, timeMaxIso)
-  )
-  ipcMain.handle(IPC.googleDisconnect, () => {
-    googleConnector.disconnect()
-    for (const id of lastGoogleCardIds) send(IPC.hqCardCleared, id)
-    lastGoogleCardIds = new Set()
-  })
-
-  ipcMain.handle(IPC.builderHasApiKey, (_event, provider: string) => secretStore.has(provider))
-  ipcMain.handle(IPC.builderSetApiKey, (_event, provider: string, apiKey: string) => secretStore.set(provider, apiKey))
-  ipcMain.handle(IPC.builderAgentRun, async (_event, request: string) => runAgent(request))
-  ipcMain.handle(IPC.builderExportKit, async () => exportAiKit())
-}
-
-/** "AI キットを書き出す": copies the SDK docs/types/templates to a folder the user can hand to any chat AI. */
-async function exportAiKit(): Promise<{ ok: boolean; path?: string }> {
-  const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
-  if (result.canceled || result.filePaths.length === 0) return { ok: false }
-
-  const destDir = join(result.filePaths[0], 'brighterm-plugin-kit')
-  const sdkDir = join(__dirname, '../../packages/sdk')
-  cpSync(sdkDir, destDir, { recursive: true })
-  return { ok: true, path: destDir }
-}
-
-async function runAgent(request: string): Promise<{ ok: boolean; error?: string }> {
-  const config = configStore.get()
-  const { apiProvider, apiModel, apiBaseUrl } = config.aiBuilder
-
-  if (apiProvider !== 'openai' && apiProvider !== 'openai-compatible') {
-    const message = `${apiProvider} プロバイダはまだ実装されていません（OpenAI / OpenAI 互換のみ対応）。`
-    send(IPC.builderAgentEvent, { type: 'error', message })
-    return { ok: false, error: message }
-  }
-
-  const apiKey = secretStore.get(apiProvider) ?? (apiProvider === 'openai-compatible' ? 'not-needed' : '')
-  if (!apiKey) {
-    const message = 'API キーが設定されていません。設定から入力してください。'
-    send(IPC.builderAgentEvent, { type: 'error', message })
-    return { ok: false, error: message }
-  }
-
-  const stagingDir = mkdtempSync(join(tmpdir(), 'brighterm-agent-'))
-  const toolRunner = new AgentToolRunner(pluginHost, stagingDir)
-  const provider = new OpenAiAgentProvider()
-
-  try {
-    await provider.run({
-      systemPrompt: buildAgentSystemPrompt(),
-      userMessage: request,
-      tools: AGENT_TOOL_DEFS,
-      callTool: (name, args) => toolRunner.call(name, args),
-      onEvent: (event) => {
-        send(IPC.builderAgentEvent, event)
-        if (event.type === 'tool-result' && event.name === 'install_staged_bundle') {
-          const result = event.result as { ok?: boolean } | undefined
-          if (result?.ok) send(IPC.pluginsChanged)
-        }
-      },
-      apiKey,
-      model: apiModel,
-      baseUrl: apiProvider === 'openai-compatible' ? apiBaseUrl : undefined
-    })
-    return { ok: true }
-  } finally {
-    toolRunner.dispose()
-  }
-}
-
-/** Dispatches a `window.brighterm.*` call by the exact method name bridgeScript.ts sends. */
-async function callHostApi(pluginId: string, method: string, args: unknown[]): Promise<unknown> {
-  switch (method) {
-    case 'storage.get':
-      return hostApiBridge.storageGet(pluginId, args[0] as string)
-    case 'storage.set':
-      return hostApiBridge.storageSet(pluginId, args[0] as string, args[1])
-    case 'storage.remove':
-      return hostApiBridge.storageRemove(pluginId, args[0] as string)
-    case 'storage.keys':
-      return hostApiBridge.storageKeys(pluginId)
-    case 'fs.pickFolder':
-      return hostApiBridge.pickFolder(pluginId)
-    case 'fs.listFiles':
-      return hostApiBridge.listFiles(pluginId, handleId(args[0]))
-    case 'fs.readFile':
-      return hostApiBridge.readFile(pluginId, handleId(args[0]), args[1] as string)
-    case 'fs.writeFile':
-      return hostApiBridge.writeFile(pluginId, handleId(args[0]), args[1] as string, args[2] as string)
-    case 'fs.deleteFile':
-      return hostApiBridge.deleteFile(pluginId, handleId(args[0]), args[1] as string)
-    case 'net.fetch':
-      return hostApiBridge.netFetch(
-        pluginId,
-        args[0] as string,
-        args[1] as { method?: string; headers?: Record<string, string>; body?: string } | undefined
-      )
-    case 'hq.publishCard':
-      return hostApiBridge.publishCard(pluginId, args[0] as Omit<Card, 'source'>)
-    case 'hq.clearCard':
-      return hostApiBridge.clearCard(pluginId, args[0] as string)
-    case 'notify':
-      return hostApiBridge.notify(pluginId, args[0] as string, args[1] as string | undefined)
-    case 'openTile':
-      send(IPC.pluginsRequestOpenTile, args[0] as string)
-      return undefined
-    default:
-      throw new Error(`unknown host API method: ${method}`)
-  }
-}
-
-const GOOGLE_POLL_MS = 5 * 60 * 1000
-
-async function pollGoogleCards(): Promise<void> {
-  if (!googleConnector.isConnected()) return
-  try {
-    const cards = await googleConnector.fetchCards()
-    const newIds = new Set(cards.map((c) => c.id))
-    for (const id of lastGoogleCardIds) {
-      if (!newIds.has(id)) send(IPC.hqCardCleared, id)
-    }
-    for (const card of cards) send(IPC.hqCardPublished, card)
-    lastGoogleCardIds = newIds
-  } catch (err) {
-    console.error('[Google] failed to fetch HQ cards:', err)
-  }
-}
-
-function startGooglePollLoop(): void {
-  void pollGoogleCards()
-  googlePollTimer = setInterval(() => void pollGoogleCards(), GOOGLE_POLL_MS)
-}
-
-function startMemoryLoop(): void {
-  let inFlight = false
-  setInterval(async () => {
-    // Suspending captures a snapshot first; don't start another tick meanwhile.
-    if (inFlight) return
-    inFlight = true
-    try {
-      await memoryTick()
-    } finally {
-      inFlight = false
-    }
-  }, MEMORY_TICK_MS)
-}
-
-async function memoryTick(): Promise<void> {
-    const config = configStore.get()
-    const suspendCandidates = viewManager.getSuspendCandidates(config.suspendAfterMs)
-    for (const tileId of suspendCandidates) {
-      await viewManager.suspend(tileId)
-    }
-
-    const { totalAppBytes, rows } = summarizeAppMemory(
-      app.getAppMetrics().map((m) => ({ pid: m.pid, bytes: m.memory.workingSetSize * 1024 })),
-      viewManager.getViewPids(),
-      shellView?.webContents.getOSProcessId() ?? null
+    const etcService = new EtcService(join(userData, 'etc-history'))
+    const pluginHost = new PluginHost(join(userData, 'plugins'))
+    // __dirname (not app.getAppPath()) so this resolves the same way in dev
+    // (out/main/index.cjs) and packaged (app.asar/out/main/index.cjs) builds —
+    // see protocol.ts's identical reasoning for packages/sdk.
+    installBundledPlugins(pluginHost, join(__dirname, '../../plugins-builtin'), ['slack'])
+    const hostApiBridge = new PluginHostApiBridge(
+      pluginHost,
+      join(userData, 'plugin-data'),
+      (card) => send(IPC.hqCardPublished, card),
+      (cardId) => send(IPC.hqCardCleared, cardId)
     )
-    send(IPC.memorySnapshot, {
-      totalAppBytes,
-      tiles: rows.map(({ id: tileId, memoryBytes }) => ({
-        tileId,
-        memoryBytes,
-        suspended: viewManager.isSuspended(tileId),
-        lastActiveAt: Date.now()
-      }))
+    registerPluginProtocolHandler(pluginHost)
+
+    const safeStorageCrypto = createSafeStorageCrypto()
+    const googleConnector = new GoogleConnector(
+      new GoogleCredentialsStore(join(userData, 'google-credentials.enc'), safeStorageCrypto)
+    )
+    const secretStore = new SecretStore(join(userData, 'builder-secrets.enc'), safeStorageCrypto)
+
+    const views = new ViewManager({
+      getWindow: getMainWindow,
+      onSnapshotUpdated: (tileId, snapshot) => send(IPC.tileSnapshotUpdated, tileId, snapshot),
+      onTitleUpdated: (tileId, title) => send(IPC.tileTitleUpdated, tileId, title),
+      onNavigated: (tileId, state) => send(IPC.tileNavigated, tileId, state)
     })
+    const ptys = new PtyManager({
+      onData: (tileId, data) => send(IPC.ptyData, tileId, data),
+      onExit: (tileId, exitCode) => send(IPC.ptyExit, tileId, exitCode)
+    })
+    viewManager = views
+    ptyManager = ptys
+
+    registerAppIpc(configStore, startupWebTheme)
+    registerViewsIpc(views, (tileId) => {
+      ptys.kill(tileId)
+      fsWatchers.stop(tileId)
+    })
+    registerTerminalIpc(ptys)
+    registerFilesIpc(fsWatchers, send)
+    registerSysmonIpc()
+    registerSettingsIpc(etcService)
+    registerPluginsIpc(pluginHost, hostApiBridge, send)
+    const google = registerGoogleIpc(googleConnector, send)
+    registerBuilderIpc({ configStore, secretStore, pluginHost, send })
+
+    createMainWindow()
+    startMemoryLoop({ viewManager: views, suspendAfterMs: () => configStore.get().suspendAfterMs, shellProcessId, send })
+    google.startPolling()
+    stopGooglePolling = google.stopPolling
+
+    app.on('activate', () => {
+      if (getMainWindow() === null) createMainWindow()
+    })
+  })
+
+  app.on('second-instance', focusMainWindow)
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit()
+  })
+
+  app.on('before-quit', () => {
+    configStore.flush()
+    ptyManager?.disposeAll()
+    fsWatchers.stopAll()
+    viewManager?.disposeAll()
+    stopGooglePolling?.()
+  })
 }
-
-app.whenReady().then(() => {
-  if (!isPrimaryInstance) return
-  applyWebTheme(configStore.get().appearance.webTheme)
-  etcService = new EtcService(join(app.getPath('userData'), 'etc-history'))
-  pluginHost = new PluginHost(join(app.getPath('userData'), 'plugins'))
-  // __dirname (not app.getAppPath()) so this resolves the same way in dev
-  // (out/main/index.cjs) and packaged (app.asar/out/main/index.cjs) builds —
-  // see protocol.ts's identical reasoning for packages/sdk.
-  installBundledPlugins(pluginHost, join(__dirname, '../../plugins-builtin'), ['slack'])
-  hostApiBridge = new PluginHostApiBridge(
-    pluginHost,
-    join(app.getPath('userData'), 'plugin-data'),
-    (card) => send(IPC.hqCardPublished, card),
-    (cardId) => send(IPC.hqCardCleared, cardId)
-  )
-  registerPluginProtocolHandler(pluginHost)
-
-  const safeStorageCrypto = createSafeStorageCrypto()
-  googleConnector = new GoogleConnector(
-    new GoogleCredentialsStore(join(app.getPath('userData'), 'google-credentials.enc'), safeStorageCrypto)
-  )
-  secretStore = new SecretStore(join(app.getPath('userData'), 'builder-secrets.enc'), safeStorageCrypto)
-
-  viewManager = new ViewManager({
-    getWindow: () => mainWindow,
-    onSnapshotUpdated: (tileId, snapshot) => send(IPC.tileSnapshotUpdated, tileId, snapshot),
-    onTitleUpdated: (tileId, title) => send(IPC.tileTitleUpdated, tileId, title),
-    onNavigated: (tileId, state) => send(IPC.tileNavigated, tileId, state)
-  })
-  ptyManager = new PtyManager({
-    onData: (tileId, data) => send(IPC.ptyData, tileId, data),
-    onExit: (tileId, exitCode) => send(IPC.ptyExit, tileId, exitCode)
-  })
-
-  registerIpcHandlers()
-  createWindow()
-  startMemoryLoop()
-  startGooglePollLoop()
-
-  app.on('activate', () => {
-    if (mainWindow === null) createWindow()
-  })
-})
-
-app.on('second-instance', () => {
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore()
-    mainWindow.focus()
-  }
-})
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
-})
-
-app.on('before-quit', () => {
-  if (!isPrimaryInstance) return
-  configStore?.flush()
-  ptyManager?.disposeAll()
-  fsWatchers.stopAll()
-  viewManager?.disposeAll()
-  if (googlePollTimer) clearInterval(googlePollTimer)
-})
