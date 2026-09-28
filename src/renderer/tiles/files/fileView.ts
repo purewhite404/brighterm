@@ -1,5 +1,5 @@
 /** Pure view logic for the Files tile: filtering, sorting and formatting of entries (unit-tested). */
-import type { DirEntry } from '../../main/fsService'
+import type { DirEntry } from '../../../main/fsService'
 
 export type SortKey = 'name' | 'ext' | 'modified' | 'created' | 'size'
 export type ColumnKey = 'mode' | 'size' | 'modified' | 'created'

@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import type { ProcessInfo, SystemSnapshot } from '../../main/sysMonitor'
-import { useAppStore } from '../store/appStore'
-import { Icon } from '../ui/Icon'
+import type { ProcessInfo, SystemSnapshot } from '../../../main/sysMonitor'
+import { useAppStore } from '../../store/appStore'
+import { Icon } from '../../ui/Icon'
 import { CpuChart, type CpuSample } from './CpuChart'
-import { formatBytes } from '../ui/formatBytes'
+import { formatBytes } from '../../ui/formatBytes'
+import { baseTileId } from '../shared/subViews'
 
 const POLL_MS = 500
 const HISTORY_MS = 60 * 1000
@@ -27,7 +28,7 @@ export function SysMonTile(): React.JSX.Element {
   /** "<tileId>::<sub>" views and tiles in other workspaces get a readable name too. */
   const tileName = (viewId: string): string => {
     if (APP_ROW_NAMES[viewId]) return APP_ROW_NAMES[viewId]
-    const baseId = viewId.split('::')[0]
+    const baseId = baseTileId(viewId)
     for (const ws of config?.workspaces ?? []) {
       const tile = ws.tiles[baseId]
       if (tile) return runtime[baseId]?.titleOverride || tile.title

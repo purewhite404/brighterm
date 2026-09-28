@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useAppStore } from '../store/appStore'
-import { BUILTIN_TILE_DEFS } from '../tiles/registry'
+import { BUILTIN_TILES, builtinTile, pluginTile, webTile } from '../tiles/catalog'
 import { Icon } from '../ui/Icon'
 import type { PluginListItem } from '../../main/plugins/pluginHost'
-import type { BuiltinTileType, WebTileDefinition } from '@shared/types'
+import type { BuiltinTileType } from '@shared/types'
 
 function DockButton({
   icon,
@@ -40,46 +40,6 @@ export function Dock(): React.JSX.Element {
 
   if (!config) return <div className="bt-dock" />
 
-  const launchBuiltin = (typeId: BuiltinTileType): void => {
-    const def = BUILTIN_TILE_DEFS[typeId]
-    addTile({ kind: 'builtin', typeId, title: def.title, icon: def.icon })
-  }
-
-  const launchWeb = (def: WebTileDefinition): void => {
-    addTile({
-      kind: 'web',
-      typeId: def.id,
-      title: def.title,
-      icon: def.icon,
-      config: { url: def.url, partitionId: def.partitionId, compactCss: def.compactCss }
-    })
-  }
-
-  const launchPlugin = (item: PluginListItem): void => {
-    if (item.manifest.kind === 'web') {
-      addTile({
-        kind: 'plugin',
-        typeId: item.manifest.id,
-        title: item.manifest.name,
-        icon: item.manifest.icon,
-        config: {
-          pluginKind: 'web',
-          pluginId: item.manifest.id,
-          url: item.manifest.url,
-          partitionId: `plugin-${item.manifest.id}`
-        }
-      })
-    } else {
-      addTile({
-        kind: 'plugin',
-        typeId: item.manifest.id,
-        title: item.manifest.name,
-        icon: item.manifest.icon,
-        config: { pluginKind: 'app', pluginId: item.manifest.id }
-      })
-    }
-  }
-
   return (
     <div className="bt-dock">
       <div className="bt-dock__section">
@@ -110,14 +70,14 @@ export function Dock(): React.JSX.Element {
       <div className="bt-dock__divider" />
 
       <div className="bt-dock__section bt-dock__section--scroll">
-        {(Object.entries(BUILTIN_TILE_DEFS) as [BuiltinTileType, (typeof BUILTIN_TILE_DEFS)[BuiltinTileType]][])
+        {(Object.entries(BUILTIN_TILES) as [BuiltinTileType, (typeof BUILTIN_TILES)[BuiltinTileType]][])
           .filter(([, def]) => def.dockVisible)
           .map(([id, def]) => (
-            <DockButton key={id} icon={def.icon} label={def.title} onClick={() => launchBuiltin(id)} />
+            <DockButton key={id} icon={def.icon} label={def.title} onClick={() => addTile(builtinTile(id))} />
           ))}
 
         {config.webTileDefinitions.map((def) => (
-          <DockButton key={def.id} icon={def.icon} label={def.title} onClick={() => launchWeb(def)} />
+          <DockButton key={def.id} icon={def.icon} label={def.title} onClick={() => addTile(webTile(def))} />
         ))}
 
         {plugins
@@ -127,7 +87,7 @@ export function Dock(): React.JSX.Element {
               key={p.manifest.id}
               icon={p.manifest.icon}
               label={p.manifest.name}
-              onClick={() => launchPlugin(p)}
+              onClick={() => addTile(pluginTile(p))}
             />
           ))}
       </div>

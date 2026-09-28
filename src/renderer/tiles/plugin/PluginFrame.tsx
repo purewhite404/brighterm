@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { useAppStore, selectActiveWorkspace } from '../store/appStore'
+import { useAppStore, selectActiveWorkspace } from '../../store/appStore'
+import { useTileConfig } from '../shared/useTileConfig'
 
 /** Set in a plugin tile's config (see FileExplorerTile) to open a file in it. */
 export interface OpenFileRequest {
@@ -24,13 +25,12 @@ interface BridgeMessage {
  * process (which enforces the plugin's declared permissions).
  */
 export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
-  const tile = useAppStore((s) => selectActiveWorkspace(s)?.tiles[tileId])
+  const title = useAppStore((s) => selectActiveWorkspace(s)?.tiles[tileId]?.title)
+  const [config, updateConfig] = useTileConfig<{ pluginId: string; openRequest: OpenFileRequest | null }>(tileId)
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const [src, setSrc] = useState<string | null>(null)
   const [loaded, setLoaded] = useState(false)
-  const updateTileConfig = useAppStore((s) => s.updateTileConfig)
 
-  const config = (tile?.config ?? {}) as { pluginId?: string; openRequest?: OpenFileRequest | null }
   const pluginId = config.pluginId
   const openRequest = config.openRequest
 
@@ -78,12 +78,12 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
         { __brighterm: true, event: 'openFile', payload: { folder, name: openRequest.name } },
         '*'
       )
-      updateTileConfig(tileId, { openRequest: null })
+      updateConfig({ openRequest: null })
     })
     return () => {
       cancelled = true
     }
-  }, [pluginId, loaded, openRequest, tileId, updateTileConfig])
+  }, [pluginId, loaded, openRequest, updateConfig])
 
   if (!pluginId) {
     return <div className="bt-tile-body bt-tile-body--centered bt-text-muted">プラグインが指定されていません</div>
@@ -96,7 +96,7 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
     <iframe
       ref={iframeRef}
       src={src}
-      title={tile?.title ?? pluginId}
+      title={title ?? pluginId}
       className="bt-plugin-frame"
       onLoad={() => setLoaded(true)}
       sandbox="allow-scripts allow-forms allow-modals allow-popups"

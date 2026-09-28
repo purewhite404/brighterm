@@ -1,5 +1,12 @@
 import { useContext, useEffect, useRef } from 'react'
-import { TileRectContext } from '../tiling/tileContexts'
+import { TileRectContext } from '../../tiling/tileContexts'
+
+export interface WebViewSource {
+  url: string
+  /** Electron session partition suffix; same id => shared cookies/login. */
+  partitionId: string
+  compactCss?: string
+}
 
 /**
  * Binds a main-process WebContentsView to a placeholder <div>.
@@ -13,7 +20,7 @@ import { TileRectContext } from '../tiling/tileContexts'
  */
 export function useEmbeddedWebView(
   viewId: string,
-  source: { url: string; partitionId: string; compactCss?: string } | null
+  source: WebViewSource | null
 ): React.RefObject<HTMLDivElement | null> {
   const ref = useRef<HTMLDivElement | null>(null)
   const tileRect = useContext(TileRectContext)

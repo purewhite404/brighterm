@@ -1,6 +1,6 @@
-import { useAppStore } from '../store/appStore'
-import { Icon } from '../ui/Icon'
-import { GoogleConnectPanel } from '../ui/GoogleConnectPanel'
+import { useAppStore } from '../../store/appStore'
+import { Icon } from '../../ui/Icon'
+import { GoogleConnectPanel } from '../../ui/GoogleConnectPanel'
 import type { Card } from '@shared/types'
 
 function priorityIcon(priority: Card['priority']): string {

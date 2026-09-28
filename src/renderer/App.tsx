@@ -4,6 +4,7 @@ import { Dock } from './dock/Dock'
 import { TilingView } from './tiling/TilingView'
 import { CommandPalette } from './palette/CommandPalette'
 import { StatusBar } from './StatusBar'
+import { titledTileId } from './tiles/shared/subViews'
 
 export function App(): React.JSX.Element {
   const loaded = useAppStore((s) => s.loaded)
@@ -21,10 +22,9 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     const unsubTitle = window.api.tile.onTitleUpdated((viewId, title) => {
-      // Sub-views ("<tileId>::<name>") title their tile — except side panes: the AI Builder's
-      // chat and the Files preview.
-      if (viewId.endsWith('::chat') || viewId.endsWith('::preview')) return
-      setTileRuntime(viewId.split('::')[0], { titleOverride: title })
+      // Sub-views title their tile too — except side panes (the AI Builder chat, the Files preview).
+      const tileId = titledTileId(viewId)
+      if (tileId) setTileRuntime(tileId, { titleOverride: title })
     })
     const unsubSnapshot = window.api.tile.onSnapshotUpdated((tileId, snapshot) => {
       setTileRuntime(tileId, { snapshot })

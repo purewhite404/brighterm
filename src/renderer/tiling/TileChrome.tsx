@@ -2,13 +2,8 @@ import { useContext, useMemo } from 'react'
 import { useAppStore, selectActiveWorkspace } from '../store/appStore'
 import { resolveTileComponent } from '../tiles/registry'
 import { Icon } from '../ui/Icon'
+import { formatTileMemory } from '../ui/formatBytes'
 import { TileDragContext, TILE_DRAG_MIME } from './tileContexts'
-
-function formatBytes(bytes: number): string {
-  if (bytes <= 0) return ''
-  const mb = bytes / (1024 * 1024)
-  return mb < 1024 ? `${mb.toFixed(0)} MB` : `${(mb / 1024).toFixed(1)} GB`
-}
 
 export function TileChrome({ tileId }: { tileId: string }): React.JSX.Element {
   const tile = useAppStore((s) => selectActiveWorkspace(s)?.tiles[tileId])
@@ -41,7 +36,7 @@ export function TileChrome({ tileId }: { tileId: string }): React.JSX.Element {
           {title}
         </span>
         {memoryEntry && memoryEntry.memoryBytes > 0 && (
-          <span className="bt-tile__memory">{formatBytes(memoryEntry.memoryBytes)}</span>
+          <span className="bt-tile__memory">{formatTileMemory(memoryEntry.memoryBytes)}</span>
         )}
         <button
           className="bt-tile__close"

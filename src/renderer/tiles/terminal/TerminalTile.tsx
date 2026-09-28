@@ -2,7 +2,8 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
-import { useAppStore, selectActiveWorkspace } from '../store/appStore'
+import { useAppStore } from '../../store/appStore'
+import { useTileConfig } from '../shared/useTileConfig'
 
 /** xterm measures glyphs on a canvas, which can't resolve CSS variables — hand it the real font stack. */
 function monoFontStack(): string {
@@ -12,8 +13,7 @@ function monoFontStack(): string {
 
 export function TerminalTile({ tileId }: { tileId: string }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const tile = useAppStore((s) => selectActiveWorkspace(s)?.tiles[tileId])
-  const config = (tile?.config ?? {}) as { shellId?: string; cwd?: string }
+  const [config] = useTileConfig<{ shellId: string; cwd: string }>(tileId)
   const closeTile = useAppStore((s) => s.closeTile)
 
   useEffect(() => {

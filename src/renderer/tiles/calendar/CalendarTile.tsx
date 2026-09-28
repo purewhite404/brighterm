@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useAppStore } from '../store/appStore'
-import { Icon } from '../ui/Icon'
-import { GoogleConnectPanel } from '../ui/GoogleConnectPanel'
+import { useAppStore } from '../../store/appStore'
+import { Icon } from '../../ui/Icon'
+import { GoogleConnectPanel } from '../../ui/GoogleConnectPanel'
 import { buildMonthGrid, dateKey, eventsByDay, initialMonth, type CalendarEventLike } from './calendarGrid'
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']

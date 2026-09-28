@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { SEARCH_ENGINES, resolveAddressInput } from '@shared/types'
-import { useAppStore, selectActiveWorkspace } from '../store/appStore'
-import { useEmbeddedWebView } from './useEmbeddedWebView'
-import { Icon } from '../ui/Icon'
+import { useAppStore } from '../../store/appStore'
+import { EmbeddedWebView } from '../shared/EmbeddedWebView'
+import { useTileConfig } from '../shared/useTileConfig'
+import { Icon } from '../../ui/Icon'
 
 /**
  * A plain browser: address/search bar + back/forward/reload.
@@ -11,19 +12,15 @@ import { Icon } from '../ui/Icon'
  * back after a restart.
  */
 export function BrowserTile({ tileId }: { tileId: string }): React.JSX.Element {
-  const tile = useAppStore((s) => selectActiveWorkspace(s)?.tiles[tileId])
+  const [config, updateConfig] = useTileConfig<{ url: string }>(tileId)
   const search = useAppStore((s) => s.config?.search) ?? { engine: 'duckduckgo' as const }
-  const snapshot = useAppStore((s) => s.runtime[tileId]?.snapshot)
-  const updateTileConfig = useAppStore((s) => s.updateTileConfig)
 
-  const savedUrl = ((tile?.config ?? {}) as { url?: string }).url ?? search.homeUrl
+  const savedUrl = config.url ?? search.homeUrl
   // Only the first URL creates the view; later ones are navigations.
   const [startUrl, setStartUrl] = useState<string | null>(savedUrl ?? null)
   const [address, setAddress] = useState(savedUrl ?? '')
   const [editing, setEditing] = useState(false)
   const [nav, setNav] = useState({ canGoBack: false, canGoForward: false })
-
-  const ref = useEmbeddedWebView(tileId, startUrl ? { url: startUrl, partitionId: 'browser' } : null)
 
   useEffect(
     () =>
@@ -31,9 +28,9 @@ export function BrowserTile({ tileId }: { tileId: string }): React.JSX.Element {
         if (id !== tileId) return
         setNav({ canGoBack: state.canGoBack, canGoForward: state.canGoForward })
         if (!editing) setAddress(state.url)
-        updateTileConfig(tileId, { url: state.url })
+        updateConfig({ url: state.url })
       }),
-    [tileId, editing, updateTileConfig]
+    [tileId, editing, updateConfig]
   )
 
   const go = (): void => {
@@ -41,7 +38,7 @@ export function BrowserTile({ tileId }: { tileId: string }): React.JSX.Element {
     const url = resolveAddressInput(address, search.engine)
     setAddress(url)
     setEditing(false)
-    updateTileConfig(tileId, { url })
+    updateConfig({ url })
     if (startUrl) void window.api.tile.navigate(tileId, url)
     else setStartUrl(url)
   }
@@ -76,9 +73,7 @@ export function BrowserTile({ tileId }: { tileId: string }): React.JSX.Element {
           }}
         />
       </div>
-      <div ref={ref} className="bt-web-tile">
-        {snapshot && <img src={snapshot} alt="" className="bt-web-tile__snapshot" draggable={false} />}
-      </div>
+      <EmbeddedWebView viewId={tileId} source={startUrl ? { url: startUrl, partitionId: 'browser' } : null} />
     </div>
   )
 }

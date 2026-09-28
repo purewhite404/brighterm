@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../store/appStore'
-import { BUILTIN_TILE_DEFS } from '../tiles/registry'
+import { BUILTIN_TILES, builtinTile, pluginTile, webTile } from '../tiles/catalog'
 import { Icon } from '../ui/Icon'
 import type { BuiltinTileType } from '@shared/types'
 import type { PluginListItem } from '../../main/plugins/pluginHost'
@@ -64,9 +64,9 @@ export function CommandPalette(): React.JSX.Element | null {
       })
     }
 
-    for (const [typeId, def] of Object.entries(BUILTIN_TILE_DEFS) as [
+    for (const [typeId, def] of Object.entries(BUILTIN_TILES) as [
       BuiltinTileType,
-      (typeof BUILTIN_TILE_DEFS)[BuiltinTileType]
+      (typeof BUILTIN_TILES)[BuiltinTileType]
     ][]) {
       if (!def.dockVisible) continue
       result.push({
@@ -74,7 +74,7 @@ export function CommandPalette(): React.JSX.Element | null {
         label: def.title,
         icon: def.icon,
         group: 'タイルを追加',
-        run: () => addTile({ kind: 'builtin', typeId, title: def.title, icon: def.icon })
+        run: () => addTile(builtinTile(typeId))
       })
     }
 
@@ -84,14 +84,7 @@ export function CommandPalette(): React.JSX.Element | null {
         label: def.title,
         icon: def.icon,
         group: 'タイルを追加',
-        run: () =>
-          addTile({
-            kind: 'web',
-            typeId: def.id,
-            title: def.title,
-            icon: def.icon,
-            config: { url: def.url, partitionId: def.partitionId, compactCss: def.compactCss }
-          })
+        run: () => addTile(webTile(def))
       })
     }
 
@@ -101,17 +94,7 @@ export function CommandPalette(): React.JSX.Element | null {
         label: p.manifest.name,
         icon: p.manifest.icon,
         group: 'プラグインを追加',
-        run: () =>
-          addTile({
-            kind: 'plugin',
-            typeId: p.manifest.id,
-            title: p.manifest.name,
-            icon: p.manifest.icon,
-            config:
-              p.manifest.kind === 'web'
-                ? { pluginKind: 'web', pluginId: p.manifest.id, url: p.manifest.url, partitionId: `plugin-${p.manifest.id}` }
-                : { pluginKind: 'app', pluginId: p.manifest.id }
-          })
+        run: () => addTile(pluginTile(p))
       })
     }
 

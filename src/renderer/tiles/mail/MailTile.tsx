@@ -1,6 +1,7 @@
 import { resolveMail } from '@shared/types'
-import { useAppStore } from '../store/appStore'
-import { useEmbeddedWebView } from './useEmbeddedWebView'
+import { useAppStore } from '../../store/appStore'
+import { EmbeddedWebView } from '../shared/EmbeddedWebView'
+import { subViewId } from '../shared/subViews'
 
 /**
  * Web mail, for whichever provider is chosen in Settings (Gmail, Outlook,
@@ -10,13 +11,11 @@ import { useEmbeddedWebView } from './useEmbeddedWebView'
  */
 export function MailTile({ tileId }: { tileId: string }): React.JSX.Element {
   const mail = useAppStore((s) => s.config?.mail) ?? { provider: 'gmail' }
-  const snapshot = useAppStore((s) => s.runtime[`${tileId}::${mail.provider}`]?.snapshot)
   const target = resolveMail(mail)
-  const ref = useEmbeddedWebView(`${tileId}::${mail.provider}`, { url: target.url, partitionId: target.partitionId })
-
   return (
-    <div ref={ref} className="bt-web-tile">
-      {snapshot && <img src={snapshot} alt="" className="bt-web-tile__snapshot" draggable={false} />}
-    </div>
+    <EmbeddedWebView
+      viewId={subViewId(tileId, mail.provider)}
+      source={{ url: target.url, partitionId: target.partitionId }}
+    />
   )
 }

@@ -7,3 +7,10 @@ export function formatBytes(bytes: number): string {
   if (mb < 1024) return `${mb.toFixed(0)} MB`
   return `${(mb / 1024).toFixed(2)} GB`
 }
+
+/** A tile header's compact memory badge: whole MB, then GB; nothing for 0. */
+export function formatTileMemory(bytes: number): string {
+  if (bytes <= 0) return ''
+  const mb = bytes / (1024 * 1024)
+  return mb < 1024 ? `${mb.toFixed(0)} MB` : `${(mb / 1024).toFixed(1)} GB`
+}
