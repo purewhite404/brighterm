@@ -497,3 +497,48 @@ test('Files: a .tar.xz is described by its format, not as "data"', async () => {
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+test('Notes: on a small tile the file list folds away and opens on demand; on a big one it can be hidden', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'brighterm-notes-'))
+  writeFileSync(join(folder, 'a.md'), 'note A')
+  writeFileSync(join(folder, 'b.md'), 'note B')
+  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  const s = await launchIn(dir)
+  try {
+    await s.app.evaluate(({ dialog }, d) => {
+      dialog.showOpenDialog = (async () => ({ canceled: false, filePaths: [d] })) as typeof dialog.showOpenDialog
+    }, folder)
+    await dock(s.window, 'Notes').click()
+    const notes = s.window.frameLocator('iframe.bt-plugin-frame')
+    await notes.locator('#pick-folder').click()
+    await expect(notes.locator('#content')).toHaveValue('note A')
+
+    // Big tile: the list is a column; the button hides and shows it.
+    const sidebar = notes.locator('#sidebar')
+    await expect(sidebar).toBeVisible()
+    await notes.locator('#toggle-sidebar').click()
+    await expect(sidebar).toBeHidden()
+    await notes.locator('#toggle-sidebar').click()
+    await expect(sidebar).toBeVisible()
+
+    // Small tile (1/9): folded away, the editor gets the width.
+    for (let i = 1; i < 9; i++) await dock(s.window, 'Calendar').click()
+    await expect(sidebar).toBeHidden()
+    const frame = (await s.window.locator('iframe.bt-plugin-frame').boundingBox())!
+    expect(frame.width).toBeLessThan(560)
+    const editor = (await notes.locator('#content').boundingBox())!
+    expect(editor.width).toBeGreaterThan(frame.width * 0.8)
+
+    // Opens over the editor; picking a note closes it again.
+    await notes.locator('#toggle-sidebar').click()
+    await expect(sidebar).toBeVisible()
+    await expect(sidebar).toBeInViewport()
+    await notes.locator('.file-row', { hasText: 'b' }).click()
+    await expect(notes.locator('#content')).toHaveValue('note B')
+    await expect(sidebar).toBeHidden()
+  } finally {
+    await s.app.close()
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(folder, { recursive: true, force: true })
+  }
+})

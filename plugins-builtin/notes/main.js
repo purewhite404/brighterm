@@ -12,6 +12,44 @@ const titleInput = document.getElementById('title')
 const contentArea = document.getElementById('content')
 const changeFolderBtn = document.getElementById('change-folder')
 const folderLabel = document.getElementById('folder-label')
+const toggleSidebarBtn = document.getElementById('toggle-sidebar')
+const sidebarBackdrop = document.getElementById('sidebar-backdrop')
+
+// ---- File list pane: always shown on a roomy tile (unless collapsed by hand);
+// on a small tile it's folded away and opens over the editor on demand.
+const NARROW = window.matchMedia('(max-width: 559px)')
+let sidebarCollapsed = false // wide tiles: user folded it away
+let sidebarOpen = false // narrow tiles: temporarily shown over the editor
+
+function applySidebar() {
+  const narrow = NARROW.matches
+  notesScreen.classList.toggle('narrow', narrow)
+  notesScreen.classList.toggle('sidebar-hidden', narrow ? !sidebarOpen : sidebarCollapsed)
+  notesScreen.classList.toggle('sidebar-overlay', narrow && sidebarOpen)
+  toggleSidebarBtn.setAttribute('aria-expanded', String(narrow ? sidebarOpen : !sidebarCollapsed))
+}
+
+toggleSidebarBtn.addEventListener('click', () => {
+  if (NARROW.matches) sidebarOpen = !sidebarOpen
+  else sidebarCollapsed = !sidebarCollapsed
+  applySidebar()
+})
+sidebarBackdrop.addEventListener('click', () => {
+  sidebarOpen = false
+  applySidebar()
+})
+NARROW.addEventListener('change', () => {
+  sidebarOpen = false
+  applySidebar()
+})
+applySidebar()
+
+/** After picking a note on a small tile, get the list out of the way. */
+function closeOverlaySidebar() {
+  if (!sidebarOpen) return
+  sidebarOpen = false
+  applySidebar()
+}
 
 let folderHandle = null
 let files = [] // { name, isDirectory }
@@ -81,7 +119,10 @@ function renderFileList() {
     const row = document.createElement('button')
     row.className = 'file-row' + (file.name === currentFile ? ' file-row--active' : '')
     row.textContent = displayName(file.name)
-    row.addEventListener('click', () => openFile(file.name))
+    row.addEventListener('click', () => {
+      closeOverlaySidebar()
+      openFile(file.name)
+    })
     fileListEl.appendChild(row)
   }
 }
@@ -95,6 +136,7 @@ async function openFile(name) {
 }
 
 newNoteBtn.addEventListener('click', async () => {
+  closeOverlaySidebar()
   const name = `Untitled-${Date.now()}.md`
   await window.brighterm.fs.writeFile(folderHandle, name, '')
   await refreshFileList()

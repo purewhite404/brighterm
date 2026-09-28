@@ -23,8 +23,16 @@
           </div>
           <div id="file-list"></div>
         </div>
+        <div id="sidebar-backdrop"></div>
         <div id="editor">
-          <input id="title" placeholder="無題のメモ" />
+          <div id="editor-header">
+            <button id="toggle-sidebar" title="ファイル一覧を表示/隠す" aria-label="ファイル一覧を表示/隠す" aria-expanded="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M4 6h16M4 12h16M4 18h16" />
+              </svg>
+            </button>
+            <input id="title" placeholder="無題のメモ" />
+          </div>
           <textarea id="content" placeholder="ここに書く…（# 見出し、**太字**、- 箇条書き に対応）"></textarea>
         </div>
       </div>
