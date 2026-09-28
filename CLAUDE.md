@@ -109,7 +109,20 @@ shortcuts with icons, mail/search/web-theme prefs, Linux /etc editor), HQ, Notes
 Slack (web embed, disabled by default), AI Builder (web-bridge + OpenAI API agent),
 plugin install/validate/rollback, web dark mode.
 
+Added in the second hands-on round (tests in `tests/e2e/fixes3.spec.ts`, `fixes4.spec.ts`):
+Terminal starts PowerShell 7; Browser starts as a bare address bar and restores its
+URL; Files restores its tree, hides dot/Windows-hidden files, shows ls-style columns
+(auto-dropped when narrow), has a settings panel (hidden toggle, sort, columns, new
+folder/file) and a content-sniffed preview (text → Notes, code/HTML/image/PDF/media
+previewed, no autoplay) that adapts to small tiles; Notes folds its list on small
+tiles; empty workspaces removable; SysMon 0.5 s / 60 s axis, whole-app memory (no
+"budget"); Calendar shows next month in the last week; unified 8px scrollbars.
+
 Known gaps / possible next steps:
+- The AI Builder ChatGPT pane overflowing on paste is believed to be ChatGPT's own
+  layout (our view bounds don't change); unverifiable here (Cloudflare).
+- Terminal shells' own memory isn't in SysMon's app total.
+- Scrollbars inside Chromium's PDF viewer can't be styled.
 - Not verified with real credentials: Google OAuth/Calendar/Gmail, OpenAI agent mode.
 - Linux-only paths (etc editor, desktop settings detection) unverified — no Linux box.
 - Anthropic/Gemini agent providers are stubs (return a "not implemented" error).
