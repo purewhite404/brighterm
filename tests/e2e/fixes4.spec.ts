@@ -151,7 +151,7 @@ test('Files: plain text opens in Notes for editing; code, HTML and images are pr
 
     // HTML (even named .txt) → read-only preview, Notes keeps what it had.
     await row(s.window, 'page.txt').click()
-    const preview = s.window.getByLabel('プレビュー')
+    const preview = s.window.getByLabel('プレビュー', { exact: true })
     await expect(preview).toContainText('HTML document')
     await expect(preview.locator('.bt-files__code')).toContainText('<h1>hi</h1>')
     await expect(notes.locator('#content')).toHaveValue('just some words\n')
@@ -209,6 +209,42 @@ test('Files: on a narrow tile the settings sit behind a gear button', async () =
     rmSync(root, { recursive: true, force: true })
   }
 })
+
+for (const count of [4, 9, 16]) {
+  test(`Files: in a 1/${count} tile the preview fits inside the tile next to the tree`, async () => {
+    const root = makeTree()
+    const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+    seedFiles(dir, root)
+    const s = await launchIn(dir)
+    try {
+      for (let i = 1; i < count; i++) await dock(s.window, 'Calendar').click()
+      await expect(s.window.locator('.bt-tile-slot')).toHaveCount(count)
+      for (const name of ['main.py', 'pixel.png']) {
+        await row(s.window, name).click()
+        const preview = s.window.getByLabel('プレビュー', { exact: true })
+        await expect(preview.locator('.bt-files__preview-name')).toHaveText(name)
+        const tile = (await s.window.locator('.bt-files').boundingBox())!
+        const box = (await preview.boundingBox())!
+        // Inside the Files tile...
+        expect(box.x).toBeGreaterThanOrEqual(tile.x - 1)
+        expect(box.y).toBeGreaterThanOrEqual(tile.y - 1)
+        expect(box.x + box.width).toBeLessThanOrEqual(tile.x + tile.width + 1)
+        expect(box.y + box.height).toBeLessThanOrEqual(tile.y + tile.height + 1)
+        // ...and the tree stays usable beside it: file names visible, not covered.
+        const nameBox = (await row(s.window, 'main.py').locator('.bt-file-row__name').boundingBox())!
+        expect(nameBox.width).toBeGreaterThan(30)
+        expect(nameBox.x + nameBox.width <= box.x + 1 || nameBox.y + nameBox.height <= box.y + 1).toBe(true)
+        // The content itself gets real space.
+        const content = preview.locator(name === 'pixel.png' ? '.bt-files__image-wrap' : '.bt-files__code')
+        expect(((await content.boundingBox())?.height ?? 0)).toBeGreaterThan(60)
+      }
+    } finally {
+      await s.app.close()
+      rmSync(dir, { recursive: true, force: true })
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+}
 
 test('Terminal: the last row is fully inside the tile', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
@@ -323,7 +359,7 @@ test('Files: PDF / audio previews follow the clicked file; the Files tile keeps 
 
   const s = await launchIn(dir)
   try {
-    const preview = s.window.getByLabel('プレビュー')
+    const preview = s.window.getByLabel('プレビュー', { exact: true })
     /** URL + bounds + how much is painted, of the (single) preview view. */
     const previewView = () =>
       s.app.evaluate(async ({ BaseWindow }) => {
@@ -391,7 +427,7 @@ test('Files: audio/video previews do not autoplay and stop when another file is 
     })
     await expect.poll(() => inPreview<boolean>('!document.querySelector("video, audio").paused')).toBe(true)
     await row(s.window, 'main.py').click()
-    await expect(s.window.getByLabel('プレビュー').locator('.bt-files__code')).toBeVisible()
+    await expect(s.window.getByLabel('プレビュー', { exact: true }).locator('.bt-files__code')).toBeVisible()
     await expect.poll(() => inPreview<string>('location.href')).toBe('about:blank')
   } finally {
     await s.app.close()
@@ -450,7 +486,7 @@ test('Files: a .tar.xz is described by its format, not as "data"', async () => {
   seedFiles(dir, root)
   const s = await launchIn(dir)
   try {
-    const preview = s.window.getByLabel('プレビュー')
+    const preview = s.window.getByLabel('プレビュー', { exact: true })
     await row(s.window, 'bundle.tar.xz').click()
     await expect(preview.locator('.bt-files__preview-meta')).toContainText('XZ compressed data')
     await row(s.window, 'plain.tar').click()

@@ -34,6 +34,25 @@ export const COLUMN_LABELS: Record<ColumnKey, string> = {
   created: '作成日時'
 }
 
+/** Approximate on-screen width (px) of each column, including the gap before it. */
+const COLUMN_PX: Record<ColumnKey, number> = { mode: 92, size: 60, modified: 132, created: 132 }
+/** The name column never gets narrower than this; columns are dropped instead. */
+export const MIN_NAME_PX = 150
+/** Least important first: which chosen columns give way when the tree is narrow. */
+const DROP_ORDER: ColumnKey[] = ['created', 'modified', 'mode', 'size']
+
+/** The chosen columns that fit in `width` px next to the name, dropping the least important first. */
+export function fitColumns(columns: Record<ColumnKey, boolean>, width: number): Record<ColumnKey, boolean> {
+  const fitted = { ...columns }
+  const used = (): number =>
+    MIN_NAME_PX + (Object.keys(fitted) as ColumnKey[]).reduce((sum, key) => sum + (fitted[key] ? COLUMN_PX[key] : 0), 0)
+  for (const key of DROP_ORDER) {
+    if (used() <= width) break
+    fitted[key] = false
+  }
+  return fitted
+}
+
 /** Saved options merged over the defaults (tolerates older / partial saved configs). */
 export function resolveView(saved: Partial<FileViewOptions> | undefined): FileViewOptions {
   return { ...DEFAULT_VIEW, ...saved, columns: { ...DEFAULT_VIEW.columns, ...saved?.columns } }

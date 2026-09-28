@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DirEntry } from '../../main/fsService'
-import { DEFAULT_VIEW, arrangeEntries, creationTarget, formatSize, formatTimestamp, resolveView } from './fileView'
+import { DEFAULT_VIEW, arrangeEntries, creationTarget, fitColumns, formatSize, formatTimestamp, resolveView } from './fileView'
 
 const entry = (name: string, over: Partial<DirEntry> = {}): DirEntry => ({
   name,
@@ -69,5 +69,17 @@ describe('resolveView / creationTarget', () => {
     expect(creationTarget(entry('src', { isDirectory: true }), 'C:\\root')).toBe('C:\\root\\src')
     expect(creationTarget(entry('a.md'), 'C:\\x')).toBe('C:\\root')
     expect(creationTarget({ ...entry('a.md'), path: '/home/me/notes/a.md' }, '/home/me')).toBe('/home/me/notes')
+  })
+})
+
+describe('fitColumns', () => {
+  const all = { mode: true, size: true, modified: true, created: true }
+  it('keeps every chosen column when there is room', () => {
+    expect(fitColumns(DEFAULT_VIEW.columns, 900)).toEqual(DEFAULT_VIEW.columns)
+  })
+  it('drops the least important columns first as the tree narrows, keeping the name readable', () => {
+    expect(fitColumns(all, 520)).toEqual({ mode: true, size: true, modified: true, created: false })
+    expect(fitColumns(DEFAULT_VIEW.columns, 290)).toEqual({ mode: false, size: true, modified: false, created: false })
+    expect(fitColumns(DEFAULT_VIEW.columns, 180)).toEqual({ mode: false, size: false, modified: false, created: false })
   })
 })

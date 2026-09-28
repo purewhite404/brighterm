@@ -10,6 +10,7 @@ import {
   arrangeEntries,
   creationTarget,
   formatSize,
+  fitColumns,
   formatTimestamp,
   resolveView,
   type ColumnKey,
@@ -17,8 +18,21 @@ import {
   type SortKey
 } from './fileView'
 
-/** At or above this tile width the side panel (settings + preview) is always shown. */
+/**
+ * How the tile is laid out, by its width:
+ * - wide:  tree | side panel (settings + preview), always shown
+ * - split: tree | preview (only while previewing); settings in a popover
+ * - stack: tree above preview; settings in a popover
+ */
+type FilesLayout = 'wide' | 'split' | 'stack'
 const WIDE_PX = 760
+const SPLIT_PX = 420
+
+function layoutFor(width: number, height: number): FilesLayout {
+  if (width >= WIDE_PX) return 'wide'
+  // Preview below the tree only when the tile is both narrow and tall enough for it.
+  return width < SPLIT_PX && height > width ? 'stack' : 'split'
+}
 const NOTES_PLUGIN_ID = 'notes'
 
 interface FilesContextValue {
@@ -247,19 +261,28 @@ function Preview({
   entry,
   inspection,
   error,
-  onOpenInNotes
+  onOpenInNotes,
+  onClose,
+  compact = false
 }: {
   tileId: string
   entry: DirEntry
   inspection: FileInspection | null
   error: string | null
   onOpenInNotes: (() => void) | null
+  onClose?: () => void
+  /** Small tiles: actions as icon buttons in the title row, so the content keeps the space. */
+  compact?: boolean
 }): React.JSX.Element {
   let body: React.JSX.Element
   if (error) body = <div className="bt-files__preview-empty">読み込めませんでした: {error}</div>
   else if (!inspection) body = <div className="bt-files__preview-empty">読み込み中…</div>
   else if (inspection.kind === 'image' && inspection.dataUrl)
-    body = <img className="bt-files__image" src={inspection.dataUrl} alt={entry.name} />
+    body = (
+      <div className="bt-files__image-wrap">
+        <img className="bt-files__image" src={inspection.dataUrl} alt={entry.name} />
+      </div>
+    )
   else if (inspection.kind === 'pdf' || inspection.kind === 'video' || inspection.kind === 'audio')
     body = <MediaPreview viewId={`${tileId}::preview`} url={inspection.fileUrl} />
   else if (inspection.text !== undefined)
@@ -274,13 +297,46 @@ function Preview({
   return (
     <div className="bt-files__preview" aria-label="プレビュー">
       <div className="bt-files__preview-head">
-        <div className="bt-files__preview-name" title={entry.path}>
-          {entry.name}
+        <div className="bt-files__preview-title">
+          <div className="bt-files__preview-name" title={entry.path}>
+            {entry.name}
+          </div>
+          {compact && (
+            <>
+              {onOpenInNotes && (
+                <button className="bt-files__icon-button" title="Notes で開く" aria-label="Notes で開く" onClick={onOpenInNotes}>
+                  <Icon name="note" size={13} />
+                </button>
+              )}
+              <button
+                className="bt-files__icon-button"
+                title="既定のアプリで開く"
+                aria-label="既定のアプリで開く"
+                onClick={() => void window.api.shells.openPath(entry.path)}
+              >
+                <Icon name="arrow-right" size={13} />
+              </button>
+              <button
+                className="bt-files__icon-button"
+                title="フォルダを表示"
+                aria-label="フォルダを表示"
+                onClick={() => void window.api.shells.showItem(entry.path)}
+              >
+                <Icon name="folder-open" size={13} />
+              </button>
+            </>
+          )}
+          {onClose && (
+            <button className="bt-files__icon-button" title="プレビューを閉じる" aria-label="プレビューを閉じる" onClick={onClose}>
+              <Icon name="close" size={12} />
+            </button>
+          )}
         </div>
         <div className="bt-files__preview-meta">
           {inspection?.description ?? ''}
           {entry.isDirectory ? '' : ` · ${formatSize(entry) || '0'}B · ${formatTimestamp(entry.modifiedAt)}`}
         </div>
+        {!compact && (
         <div className="bt-files__preview-actions">
           {onOpenInNotes && (
             <button onClick={onOpenInNotes}>
@@ -290,6 +346,7 @@ function Preview({
           <button onClick={() => void window.api.shells.openPath(entry.path)}>既定のアプリで開く</button>
           <button onClick={() => void window.api.shells.showItem(entry.path)}>フォルダを表示</button>
         </div>
+        )}
       </div>
       {body}
     </div>
@@ -309,7 +366,9 @@ export function FileExplorerTile({ tileId }: { tileId: string }): React.JSX.Elem
   const view = resolveView(config.view)
 
   const rootRef = useRef<HTMLDivElement | null>(null)
-  const [wide, setWide] = useState(true)
+  const mainRef = useRef<HTMLDivElement | null>(null)
+  const [mainWidth, setMainWidth] = useState(0)
+  const [layout, setLayout] = useState<FilesLayout>('wide')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [root, setRoot] = useState<DirEntry | null>(null)
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set(config.expandedPaths ?? []))
@@ -357,9 +416,15 @@ export function FileExplorerTile({ tileId }: { tileId: string }): React.JSX.Elem
   useEffect(() => {
     const el = rootRef.current
     if (!el) return
-    const observer = new ResizeObserver(() => setWide(el.clientWidth >= WIDE_PX))
+    const observer = new ResizeObserver(() => setLayout(layoutFor(el.clientWidth, el.clientHeight)))
     observer.observe(el)
-    return () => observer.disconnect()
+    const main = mainRef.current
+    const mainObserver = new ResizeObserver(() => main && setMainWidth(main.clientWidth))
+    if (main) mainObserver.observe(main)
+    return () => {
+      observer.disconnect()
+      mainObserver.disconnect()
+    }
   }, [root])
 
   const setView = (next: FileViewOptions): void => updateTileConfig(tileId, { view: next })
@@ -432,15 +497,29 @@ export function FileExplorerTile({ tileId }: { tileId: string }): React.JSX.Elem
   const previewIsText = inspection && (inspection.kind === 'text' || inspection.kind === 'empty')
   // Text files go to Notes; the side panel only previews everything else.
   const showPreview = previewEntry !== null && !(previewIsText && notesAvailable)
-  const sideVisible = wide || settingsOpen || showPreview
+  const wide = layout === 'wide'
+  // What's actually drawn: the chosen columns that fit beside the name (the saved choice is untouched).
+  const shownView = mainWidth > 0 ? { ...view, columns: fitColumns(view.columns, mainWidth - 40) } : view
   const settings = (
     <SettingsPanel view={view} onChange={setView} target={creationTarget(selected, root.path)} onCreate={onCreate} />
   )
+  const preview =
+    showPreview && previewEntry ? (
+      <Preview
+        tileId={tileId}
+        entry={previewEntry}
+        inspection={inspection}
+        error={previewError}
+        onOpenInNotes={previewIsText ? () => openInNotes(previewEntry) : null}
+        onClose={wide ? undefined : () => setPreviewEntry(null)}
+        compact={!wide}
+      />
+    ) : null
 
   return (
     <FilesContext.Provider
       value={{
-        view,
+        view: shownView,
         expanded,
         selectedPath: selected?.path ?? null,
         refreshTokens,
@@ -449,10 +528,10 @@ export function FileExplorerTile({ tileId }: { tileId: string }): React.JSX.Elem
         onOpenTerminalHere: openTerminalHere
       }}
     >
-      <div ref={rootRef} className={`bt-files${wide ? ' bt-files--wide' : ''}`}>
-        <div className="bt-files__main">
+      <div ref={rootRef} className={`bt-files bt-files--${layout}`}>
+        <div ref={mainRef} className="bt-files__main">
           <div className="bt-files__header">
-            <ColumnHeader view={view} />
+            <ColumnHeader view={shownView} />
             {!wide && (
               <button
                 className="bt-files__gear"
@@ -469,32 +548,20 @@ export function FileExplorerTile({ tileId }: { tileId: string }): React.JSX.Elem
             <TreeNode entry={root} depth={0} />
           </div>
         </div>
-        {sideVisible && (
+        {wide ? (
           <div className="bt-files__side">
-            {!wide && (
-              <button
-                className="bt-files__side-close"
-                title="閉じる"
-                onClick={() => {
-                  setSettingsOpen(false)
-                  setPreviewEntry(null)
-                }}
-              >
-                <Icon name="close" size={12} />
-              </button>
-            )}
-            {(wide || settingsOpen) && settings}
-            {showPreview && previewEntry ? (
-              <Preview
-                tileId={tileId}
-                entry={previewEntry}
-                inspection={inspection}
-                error={previewError}
-                onOpenInNotes={previewIsText ? () => openInNotes(previewEntry) : null}
-              />
-            ) : (
-              wide && <div className="bt-files__preview-empty">ファイルをクリックするとここにプレビューを表示します</div>
-            )}
+            {settings}
+            {preview ?? <div className="bt-files__preview-empty">ファイルをクリックするとここにプレビューを表示します</div>}
+          </div>
+        ) : (
+          preview && <div className="bt-files__side">{preview}</div>
+        )}
+        {!wide && settingsOpen && (
+          <div className="bt-files__popover">
+            <button className="bt-files__icon-button bt-files__popover-close" title="閉じる" onClick={() => setSettingsOpen(false)}>
+              <Icon name="close" size={12} />
+            </button>
+            {settings}
           </div>
         )}
       </div>
