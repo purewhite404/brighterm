@@ -22,26 +22,65 @@ e2e test that reproduces the *user's actual scenario* and look at a screenshot
 
 ## Architecture in one screen
 
-- `src/main/index.ts` — boots everything, registers all IPC. Config is read **before**
-  `app.ready` (needed for the force-dark switch).
-- `src/main/viewManager.ts` — every web page (Browser/Mail/web plugins/AI Builder chat)
-  is a `WebContentsView` drawn *over* the DOM at the placeholder div's rect.
-  `create` is idempotent; unmounting a tile calls `hide` (not close); only hidden views
-  are suspended; sub-views are `"<tileId>::<name>"` and are closed with their tile.
+Code is organized **per tile/feature** in every layer (same folder names where possible):
+
+| | renderer `src/renderer/tiles/` | main `src/main/` |
+|---|---|---|
+| Terminal | `terminal/` | `terminal/` (ptyManager) |
+| Browser, Mail, web tiles | `browser/`, `mail/`, `web/` | `views/` (viewManager) |
+| Files | `files/` (tree, settings panel, preview) | `files/` (fsService, fileSniff) |
+| System Monitor | `sysmon/` | `sysmon/` (+ `views/memoryLoop.ts` for app memory) |
+| Settings | `settings/` (prefs, OS shortcuts, /etc editor) | `settings/` (+ `etc/`) |
+| AI Builder | `ai-builder/` (+ promptBuilder) | `builder/` |
+| Calendar, HQ | `calendar/`, `hq/` | `google/` (events, HQ cards) |
+| Plugins (Notes, Slack…) | `plugin/` (PluginFrame) | `plugins/` |
+
+- Each main folder has an **`ipc.ts`** (`registerXxxIpc(deps)`) with that feature's
+  handlers. `src/main/index.ts` only boots: the single-instance lock, what must run
+  before `app.ready` (config — needed for the force-dark switch — and the plugin
+  scheme), services, `register*Ipc`, the window (`window.ts`), loops.
+  A second instance runs none of it (it used to reinstall plugins under the running one).
+- The IPC contract is in `src/shared/`: **`ipc.ts`** (every channel, grouped by feature —
+  no string literals in main/preload) and **`apiTypes.ts`** (what main returns, grouped
+  by tile). The renderer never imports from `src/main` (`tsconfig.web.json` doesn't
+  include it). `types.ts` = tiles/layout/config, `presets.ts` = mail/search presets.
+- `src/preload/index.ts` — the whole `window.api`; events via its `subscribe()` helper.
+- `src/main/views/viewManager.ts` — every web page (Browser/Mail/web plugins/AI Builder
+  chat/Files preview) is a `WebContentsView` drawn *over* the DOM at the placeholder
+  div's rect. `create` is idempotent; unmounting a tile calls `hide` (not close); only
+  hidden views are suspended; sub-views are `"<tileId>::<name>"` and are closed with
+  their tile (renderer side: `tiles/shared/subViews.ts`; side panes are
+  `sidePaneId()` so their page title doesn't retitle the tile).
 - `src/renderer/tiling/` — `layout.ts` is a pure, heavily tested binary split tree
   (`autoGrid` ≈16:9 cells, `moveTile`, `computeRects/computeSplitters`).
   `TilingView` renders tiles as a **flat absolutely-positioned list keyed by tile id**
   so layout changes never remount tiles. Don't go back to nested split divs — that
   remounts everything (lost terminal sessions, collapsed file tree, reloaded iframes).
-- `src/renderer/tiles/useEmbeddedWebView.ts` — the only way tiles should bind a web view.
+- `src/renderer/tiles/shared/` — `EmbeddedWebView` (+ `useEmbeddedWebView`) is the only
+  way tiles should show a web view; `useTileConfig` reads/writes a tile's persisted config.
+- `src/renderer/tiles/catalog.ts` — built-in tiles' titles/icons and `builtinTile` /
+  `webTile` / `pluginTile` (what `addTile` takes); `registry.tsx` maps them to components.
 - `src/renderer/store/appStore.ts` — zustand; `updateConfig` changes memory *and* disk.
   Writing only `window.api.config.set` leaves the UI stale (that was a real bug).
+- CSS: `src/renderer/styles/app.css` = shell + rules shared by several tiles
+  (`bt-section-title`, `bt-message`, `bt-card`, `bt-btn-primary`, `bt-web-tile`);
+  each tile imports its own `tiles/<tile>/<tile>.css`. Don't borrow another tile's classes.
 - Plugins: `src/main/plugins/` (bundle parser, static analysis, `PluginHost` with
   versioned install/rollback, `plugin-app://` protocol, `hostApiBridge` permission
   checks). Spec for plugin authors/AI: `packages/sdk/AGENTS.md`.
   Bundled plugins in `plugins-builtin/` are (re)installed at every startup.
 - Pure logic lives in small modules with `*.test.ts` next to them; Electron-dependent
   glue (pkexec, augtool, OAuth, OpenAI) is reviewed but not executable here.
+
+### Adding a built-in tile
+
+1. `src/renderer/tiles/<tile>/` — component, its `<tile>.css`, pure helpers + tests.
+2. Its type id in `BuiltinTileType` (`shared/types.ts`), an entry in `tiles/catalog.ts`
+   and in `tiles/registry.tsx`.
+3. If it needs the main process: `src/main/<tile>/` with the service and `ipc.ts`,
+   channels in `shared/ipc.ts`, returned types in `shared/apiTypes.ts`, calls in
+   `src/preload/index.ts`, and one `register<Tile>Ipc(...)` line in `main/index.ts`.
+4. `tests/e2e/<tile>.spec.ts` using `tests/e2e/helpers.ts`.
 
 ## Gotchas already paid for (don't rediscover them)
 
@@ -91,6 +130,9 @@ e2e test that reproduces the *user's actual scenario* and look at a screenshot
 
 ## Verifying UI
 
+- E2E specs are one per tile (`tests/e2e/<tile>.spec.ts`) over `tests/e2e/helpers.ts`
+  (`launch`, `launchIn` for restart tests, `seedWorkspace`, `dock`, `mockFolderPicker`,
+  `webViewUrls`, `startSite`).
 - E2E launches with `--user-data-dir=<tmp>` and **`colorScheme: null`** — Playwright
   otherwise emulates `prefers-color-scheme: light` on every page.
 - Replace native dialogs in tests via `app.evaluate(({dialog}) => …)`.
@@ -99,6 +141,14 @@ e2e test that reproduces the *user's actual scenario* and look at a screenshot
   that an element exists — an earlier Notes test passed while the editor was off-screen.
 - For screenshots, write a throwaway `tests/e2e/zz-*.spec.ts` that saves PNGs to the
   scratchpad, `Read` the image, then delete the spec.
+- For refactors, a throwaway `zz-*` spec with `toHaveScreenshot` (`maxDiffPixels: 0`,
+  live numbers masked) taken before the change proves "pixel-identical" after it. The
+  `style` option of `toHaveScreenshot` had no effect on the shell page; hide things via
+  `element.style` in `evaluate` instead. `--update-snapshots` against the old build.
+- The packaged app can be driven too: `_electron.launch({ executablePath:
+  'release/win-unpacked/Brighterm.exe' })`. Playwright launches Electron through
+  `cmd.exe` on Windows (`app.process().spawnfile`), so spawn a second instance with the
+  path from `import electronPath from 'electron'`.
 
 ## Status (as of 2026-09-28)
 
@@ -109,7 +159,7 @@ shortcuts with icons, mail/search/web-theme prefs, Linux /etc editor), HQ, Notes
 Slack (web embed, disabled by default), AI Builder (web-bridge + OpenAI API agent),
 plugin install/validate/rollback, web dark mode.
 
-Added in the second hands-on round (tests in `tests/e2e/fixes3.spec.ts`, `fixes4.spec.ts`):
+Added in the second hands-on round:
 Terminal starts PowerShell 7; Browser starts as a bare address bar and restores its
 URL; Files restores its tree, hides dot/Windows-hidden files, shows ls-style columns
 (auto-dropped when narrow), has a settings panel (hidden toggle, sort, columns, new
@@ -118,7 +168,15 @@ previewed, no autoplay) that adapts to small tiles; Notes folds its list on smal
 tiles; empty workspaces removable; SysMon 0.5 s / 60 s axis, whole-app memory (no
 "budget"); Calendar shows next month in the last week; unified 8px scrollbars.
 
+Then (2026-09-28) a behaviour-preserving refactor into per-tile folders in renderer,
+main, CSS and e2e (see "Architecture"), plus one fix: a second launch no longer runs
+startup before quitting.
+
 Known gaps / possible next steps:
+- **Packaged app only**: "AI キットを書き出す" fails — `fs.cpSync` can't read a folder
+  inside `app.asar` (ENOENT, verified in `release/win-unpacked`); and `packages/sdk/
+  host-api.d.ts` isn't in the package at all (electron-builder leaves `*.d.ts` out), so
+  the kit would lack it anyway. Works in dev.
 - The AI Builder ChatGPT pane overflowing on paste is believed to be ChatGPT's own
   layout (our view bounds don't change); unverifiable here (Cloudflare).
 - Terminal shells' own memory isn't in SysMon's app total.

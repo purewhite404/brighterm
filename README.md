@@ -37,22 +37,32 @@ npm run dev
 ## アーキテクチャ
 
 ```
-src/main/            … Electron メインプロセス
-  index.ts             … ウィンドウ生成、IPC 登録、各サービスの起動
-  viewManager.ts        … Web/プラグインタイル用 WebContentsView の生成・配置・休止/復帰
-  ptyManager.ts          … ターミナル(node-pty)セッション、OS ごとのシェル検出
-  fsService.ts           … ファイルツリー、ファイル読み書き、監視
-  sysMonitor.ts           … CPU/メモリ/プロセス一覧(systeminformation)
-  configStore.ts          … userData/config.json の読み書き(デバウンス)
-  etc/                    … Settings タイルの Linux 向け /etc エディタ
-                            (Augeas 連携・検証・pkexec・世代バックアップ)
-  connectors/             … Google Calendar/Gmail 連携(OAuth・カード生成)
-  plugins/                … プラグイン基盤(検証・インストール・サンドボックス実行)
-  builder/                … AI Builder の API エージェントモード
+src/main/            … Electron メインプロセス(機能ごとのフォルダ。各フォルダの ipc.ts が IPC 窓口)
+  index.ts             … 起動処理だけ(二重起動防止、各サービスの生成、IPC 登録、ループ開始)
+  window.ts            … メインウィンドウ
+  appIpc.ts            … 設定の読み書き・再起動・外部で開く
+  configStore.ts       … userData/config.json の読み書き(デバウンス)
+  views/               … Web/プラグインタイル用 WebContentsView の生成・配置・休止/復帰、メモリ集計
+  terminal/            … ターミナル(node-pty)セッション、OS ごとのシェル検出
+  files/               … ファイルツリー、ファイル読み書き・監視、内容からの種類判定
+  sysmon/              … CPU/メモリ/プロセス一覧(systeminformation)、アプリのメモリ内訳
+  settings/            … OS 設定へのショートカット、Linux 向け /etc エディタ(etc/)
+                         (Augeas 連携・検証・pkexec・世代バックアップ)
+  google/              … Google Calendar/Gmail 連携(OAuth・カード生成)
+  plugins/             … プラグイン基盤(検証・インストール・サンドボックス実行)
+  builder/             … AI Builder の API エージェントモード
 
 src/preload/index.ts  … contextBridge 経由でレンダラーに公開する唯一の API
-src/renderer/         … React 製 UI(ドック・タイリング・各タイル)
-src/shared/types.ts   … 3プロセス共通の型定義・IPC チャンネル名
+src/renderer/         … React 製 UI
+  dock/ palette/ tiling/ store/ … ドック、コマンドパレット、タイリング、状態管理
+  tiles/<タイル名>/    … 各タイルの画面と CSS(terminal, browser, mail, calendar, files,
+                         sysmon, hq, ai-builder, settings, web, plugin)
+  tiles/shared/        … タイル共通の部品(Web ビュー埋め込み、タイル設定の保存など)
+  styles/app.css       … 外枠と複数タイル共通のスタイル
+src/shared/           … 3プロセス共通
+  types.ts             … タイル・レイアウト・設定の型
+  ipc.ts / apiTypes.ts … IPC チャンネル名と、やり取りするデータの型
+  presets.ts           … メール・検索エンジンの選択肢
 
 packages/sdk/         … プラグイン開発者(と AI)向けの仕様
   AGENTS.md              … AI に渡す唯一の仕様書
@@ -138,7 +148,7 @@ Keychain, Linux: libsecret)で暗号化して保存されます。
   AGENTS.md にあった「Web プラグインが自前でバックグラウンドポーリングし
   HQ カードを出す」仕組みは、任意コード実行の安全性を十分検証できないため
   実装していません。Slack のカード連携が欲しい場合は、Google 連携と同じ形
-  (`src/main/connectors/`)で個別に実装するのが安全です。
+  (`src/main/google/`)で個別に実装するのが安全です。
 - **electron-builder 用のアイコンが未設定です。** `resources/` に実際の
   `.ico`/`.icns`/`.png` を置き、`electron-builder.yml` の該当行を有効化して
   ください。
