@@ -172,6 +172,8 @@ export class ViewManager {
 
     win.contentView.addChildView(view)
     view.webContents.loadURL(entry.url).catch((err) => {
+      // ERR_ABORTED: superseded by a newer navigation (e.g. the next previewed file) — expected.
+      if ((err as { code?: string }).code === 'ERR_ABORTED') return
       console.error(`[ViewManager] failed to load ${entry.url} for tile ${entry.tileId}:`, err)
     })
 
