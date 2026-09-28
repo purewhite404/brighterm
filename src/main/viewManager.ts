@@ -63,6 +63,23 @@ export const SCROLLBAR_CSS = `
 /** Partitions whose pages must not autoplay media (the Files tile's preview pane). */
 const NO_AUTOPLAY_PARTITIONS = new Set(['files-preview'])
 
+/**
+ * The autoplay policy alone isn't enough: once the user has pressed play in one
+ * preview, later file:// documents count as "interacted with" and Chromium's
+ * media page autoplays them. So any play() that isn't the direct result of a
+ * user gesture (transient activation) is undone.
+ */
+const STOP_AUTOPLAY_SCRIPT = `(() => {
+  for (const m of document.querySelectorAll('video, audio')) {
+    m.autoplay = false
+    m.removeAttribute('autoplay')
+    if (!m.paused && !navigator.userActivation.isActive) m.pause()
+    m.addEventListener('play', () => {
+      if (!navigator.userActivation.isActive) m.pause()
+    })
+  }
+})()`
+
 /** Strip the Electron/x.y.z token so Google (and others) don't block the embedded login flow. */
 function desktopUserAgent(originalUA: string): string {
   return originalUA.replace(/\s*Electron\/\S+/, '').replace(/\s*brighterm\/\S+/, '')
@@ -160,6 +177,11 @@ export class ViewManager {
       view.webContents.insertCSS(SCROLLBAR_CSS, { cssOrigin: 'user' }).catch(() => {
         /* best-effort */
       })
+      if (NO_AUTOPLAY_PARTITIONS.has(entry.partitionId)) {
+        view.webContents.executeJavaScript(STOP_AUTOPLAY_SCRIPT).catch(() => {
+          /* best-effort */
+        })
+      }
     })
 
     if (entry.compactCss) {

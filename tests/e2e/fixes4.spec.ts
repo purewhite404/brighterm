@@ -400,6 +400,48 @@ test('Files: audio/video previews do not autoplay and stop when another file is 
   }
 })
 
+test('Files: after the user has clicked play in one preview, the next file still does not autoplay', async () => {
+  const root = makeTree()
+  writeFileSync(join(root, 'one.wav'), wav(8000 * 5))
+  writeFileSync(join(root, 'two.wav'), wav(8000 * 5))
+  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  seedFiles(dir, root)
+  const s = await launchIn(dir)
+  const media = () =>
+    s.app.evaluate(async ({ BaseWindow }) => {
+      const view = BaseWindow.getAllWindows()[0]
+        .contentView.children.slice(1)
+        .map((c) => c as Electron.WebContentsView)
+        .find((c) => c.webContents.getURL().endsWith('.wav'))
+      if (!view) return null
+      return view.webContents.executeJavaScript(
+        '(() => { const m = document.querySelector("video, audio"); return m && { url: location.pathname.split("/").pop(), paused: m.paused } })()'
+      )
+    }) as Promise<{ url: string; paused: boolean } | null>
+  try {
+    await row(s.window, 'one.wav').click()
+    await expect.poll(async () => (await media())?.url, { timeout: 10_000 }).toBe('one.wav')
+    await s.window.waitForTimeout(1000)
+    expect((await media())?.paused).toBe(true)
+
+    // The user starts playback (a user gesture inside the preview document).
+    await s.app.evaluate(({ BaseWindow }) => {
+      const view = BaseWindow.getAllWindows()[0].contentView.children.slice(1).map((c) => c as Electron.WebContentsView).find((c) => c.webContents.getURL().endsWith('.wav'))!
+      return view.webContents.executeJavaScript('document.querySelector("video, audio").play().then(() => true)', true)
+    })
+    await expect.poll(async () => (await media())?.paused, { timeout: 5000 }).toBe(false)
+
+    await row(s.window, 'two.wav').click()
+    await expect.poll(async () => (await media())?.url, { timeout: 10_000 }).toBe('two.wav')
+    await s.window.waitForTimeout(1500)
+    expect((await media())?.paused).toBe(true)
+  } finally {
+    await s.app.close()
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 test('Files: a .tar.xz is described by its format, not as "data"', async () => {
   const root = makeTree()
   execFileSync('tar', ['-cJf', 'bundle.tar.xz', 'memo.txt'], { cwd: root })
