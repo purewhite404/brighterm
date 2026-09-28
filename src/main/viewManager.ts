@@ -60,6 +60,9 @@ export const SCROLLBAR_CSS = `
 }
 `
 
+/** Partitions whose pages must not autoplay media (the Files tile's preview pane). */
+const NO_AUTOPLAY_PARTITIONS = new Set(['files-preview'])
+
 /** Strip the Electron/x.y.z token so Google (and others) don't block the embedded login flow. */
 function desktopUserAgent(originalUA: string): string {
   return originalUA.replace(/\s*Electron\/\S+/, '').replace(/\s*brighterm\/\S+/, '')
@@ -122,7 +125,9 @@ export class ViewManager {
         session: ses,
         contextIsolation: true,
         sandbox: true,
-        nodeIntegration: false
+        nodeIntegration: false,
+        // Files previews show audio/video with Chromium's player: only play once the user presses play.
+        ...(NO_AUTOPLAY_PARTITIONS.has(entry.partitionId) ? { autoplayPolicy: 'document-user-activation-required' as const } : {})
       }
     })
 

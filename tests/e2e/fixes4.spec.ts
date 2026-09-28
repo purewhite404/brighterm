@@ -282,9 +282,8 @@ test('Web pages get the same 8px scrollbar as built-in tiles, overriding the sit
   }
 })
 
-/** A silent 0.1 s mono 8 kHz WAV. */
-function wav(): Buffer {
-  const samples = 800
+/** A silent mono 8 kHz WAV, 0.1 s long by default. */
+function wav(samples = 800): Buffer {
   const b = Buffer.alloc(44 + samples)
   b.write('RIFF', 0)
   b.writeUInt32LE(36 + samples, 4)
@@ -357,6 +356,43 @@ test('Files: PDF / audio previews follow the clicked file; the Files tile keeps 
     await expect(preview).toContainText('PDF document')
     expect((await previewView()).count).toBe(1)
     await expect(s.window.locator('.bt-tile__title')).toHaveText('Files')
+  } finally {
+    await s.app.close()
+    rmSync(dir, { recursive: true, force: true })
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('Files: audio/video previews do not autoplay and stop when another file is selected', async () => {
+  const root = makeTree()
+  writeFileSync(join(root, 'long.wav'), wav(8000 * 5))
+  const dir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+  seedFiles(dir, root)
+  const s = await launchIn(dir)
+  const inPreview = <T,>(script: string) =>
+    s.app.evaluate(async ({ BaseWindow }, js) => {
+      const view = BaseWindow.getAllWindows()[0]
+        .contentView.children.slice(1)
+        .map((c) => c as Electron.WebContentsView)
+        .find((c) => c.webContents.getURL().startsWith('file:') || c.webContents.getURL() === 'about:blank')
+      return view ? view.webContents.executeJavaScript(js) : null
+    }, script) as Promise<T | null>
+  try {
+    await row(s.window, 'long.wav').click()
+    await expect.poll(() => inPreview<boolean>('!!document.querySelector("video, audio")'), { timeout: 10_000 }).toBe(true)
+    await s.window.waitForTimeout(1500)
+    // Loaded, but not playing.
+    expect(await inPreview('(() => { const m = document.querySelector("video, audio"); return { paused: m.paused, t: m.currentTime } })()')).toEqual({ paused: true, t: 0 })
+
+    // Start it (as the user would with the play button), then select another file.
+    await s.app.evaluate(({ BaseWindow }) => {
+      const view = BaseWindow.getAllWindows()[0].contentView.children.slice(1).map((c) => c as Electron.WebContentsView).find((c) => c.webContents.getURL().endsWith('long.wav'))!
+      return view.webContents.executeJavaScript('document.querySelector("video, audio").play().then(() => true)', true)
+    })
+    await expect.poll(() => inPreview<boolean>('!document.querySelector("video, audio").paused')).toBe(true)
+    await row(s.window, 'main.py').click()
+    await expect(s.window.getByLabel('プレビュー').locator('.bt-files__code')).toBeVisible()
+    await expect.poll(() => inPreview<string>('location.href')).toBe('about:blank')
   } finally {
     await s.app.close()
     rmSync(dir, { recursive: true, force: true })

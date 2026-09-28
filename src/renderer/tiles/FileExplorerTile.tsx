@@ -232,6 +232,9 @@ function MediaPreview({ viewId, url }: { viewId: string; url: string }): React.J
     // unless it's already showing it (runs after create — IPC calls arrive in order).
     void window.api.tile.navigate(viewId, url, true)
   }, [viewId, url])
+  // Leaving the preview (another file selected, tile hidden) only hides the view, which would
+  // keep audio/video playing — blank it so playback stops.
+  useEffect(() => () => void window.api.tile.navigate(viewId, 'about:blank', true), [viewId])
   return (
     <div ref={ref} className="bt-web-tile bt-files__media">
       {snapshot && <img src={snapshot} alt="" className="bt-web-tile__snapshot" draggable={false} />}
