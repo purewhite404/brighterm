@@ -36,9 +36,12 @@ import { tmpdir } from 'node:os'
 import { IPC, type AppConfig, type Card, type Rect, type WebTheme } from '@shared/types'
 
 // Single instance: a second launch just focuses the existing window instead
-// of opening a duplicate command HQ.
-const gotLock = app.requestSingleInstanceLock()
-if (!gotLock) {
+// of opening a duplicate command HQ. app.quit() doesn't stop this process
+// right away, so the second instance must also skip the startup below —
+// otherwise it reinstalls the bundled plugins under the running instance,
+// opens a window and flushes its stale copy of config.json before exiting.
+const isPrimaryInstance = app.requestSingleInstanceLock()
+if (!isPrimaryInstance) {
   app.quit()
 }
 
@@ -459,6 +462,7 @@ async function memoryTick(): Promise<void> {
 }
 
 app.whenReady().then(() => {
+  if (!isPrimaryInstance) return
   applyWebTheme(configStore.get().appearance.webTheme)
   etcService = new EtcService(join(app.getPath('userData'), 'etc-history'))
   pluginHost = new PluginHost(join(app.getPath('userData'), 'plugins'))
@@ -513,6 +517,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  if (!isPrimaryInstance) return
   configStore?.flush()
   ptyManager?.disposeAll()
   fsWatchers.stopAll()

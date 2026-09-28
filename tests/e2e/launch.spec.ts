@@ -1,5 +1,7 @@
 import { test, expect, _electron as electron } from '@playwright/test'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import electronPath from 'electron'
+import { mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,6 +35,43 @@ test.describe('Brighterm launch', () => {
 
       // Notes (a bundled plugin) should also be launchable from the dock.
       await expect(window.locator('.bt-dock__button[title="Notes"]')).toBeVisible()
+    } finally {
+      await app.close()
+      rmSync(userDataDir, { recursive: true, force: true })
+    }
+  })
+
+  test('a second launch exits without touching the running instance’s data', async () => {
+    const userDataDir = mkdtempSync(join(tmpdir(), 'brighterm-e2e-'))
+    const app = await electron.launch({ args: [MAIN_ENTRY, `--user-data-dir=${userDataDir}`] })
+    try {
+      const window = await app.firstWindow()
+      await expect(window.locator('.bt-dock')).toBeVisible({ timeout: 15_000 })
+
+      // Everything the first instance wrote at startup: config.json and the bundled plugins.
+      const mtimes = (): string =>
+        JSON.stringify(
+          (readdirSync(userDataDir, { recursive: true }) as string[])
+            .filter((f) => f === 'config.json' || f.startsWith('plugins'))
+            .map((f) => [f, statSync(join(userDataDir, f)).mtimeMs])
+        )
+      const before = mtimes()
+
+      const second = spawn(electronPath as unknown as string, [MAIN_ENTRY, `--user-data-dir=${userDataDir}`], { stdio: 'ignore' })
+      const exitCode = await new Promise<number | null>((done, fail) => {
+        const timer = setTimeout(() => {
+          second.kill()
+          fail(new Error('the second instance kept running'))
+        }, 10_000)
+        second.on('exit', (code) => {
+          clearTimeout(timer)
+          done(code)
+        })
+      })
+
+      expect(exitCode).toBe(0)
+      expect(mtimes()).toBe(before)
+      await expect(window.locator('.bt-dock')).toBeVisible()
     } finally {
       await app.close()
       rmSync(userDataDir, { recursive: true, force: true })
