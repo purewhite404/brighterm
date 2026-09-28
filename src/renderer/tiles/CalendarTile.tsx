@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useAppStore } from '../store/appStore'
 import { Icon } from '../ui/Icon'
 import { GoogleConnectPanel } from '../ui/GoogleConnectPanel'
-import { buildMonthGrid, dateKey, eventsByDay, type CalendarEventLike } from './calendarGrid'
+import { buildMonthGrid, dateKey, eventsByDay, initialMonth, type CalendarEventLike } from './calendarGrid'
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -16,7 +16,7 @@ export function CalendarTile(): React.JSX.Element {
   const updateConfig = useAppStore((s) => s.updateConfig)
 
   const today = new Date()
-  const [cursor, setCursor] = useState({ year: today.getFullYear(), month: today.getMonth() })
+  const [cursor, setCursor] = useState(() => initialMonth(today))
   const [selected, setSelected] = useState(dateKey(today))
   const [events, setEvents] = useState<CalendarEventLike[]>([])
   const [googleConnected, setGoogleConnected] = useState<boolean | null>(null)

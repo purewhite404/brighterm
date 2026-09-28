@@ -9,9 +9,27 @@ export function generateBridgeScript(pluginId: string): string {
   const PLUGIN_ID = ${JSON.stringify(pluginId)};
   let nextId = 1;
   const pending = new Map();
+  // Host -> plugin events (e.g. "open this file"), queued until a handler is registered.
+  const eventHandlers = {};
+  const queuedEvents = {};
+
+  function onEvent(name, cb) {
+    eventHandlers[name] = cb;
+    const queued = queuedEvents[name] || [];
+    delete queuedEvents[name];
+    for (const payload of queued) cb(payload);
+    return () => { if (eventHandlers[name] === cb) delete eventHandlers[name]; };
+  }
 
   window.addEventListener('message', (event) => {
     const data = event.data;
+    if (event.source !== window.parent) return;
+    if (data && data.__brighterm === true && typeof data.event === 'string') {
+      const handler = eventHandlers[data.event];
+      if (handler) handler(data.payload);
+      else (queuedEvents[data.event] = queuedEvents[data.event] || []).push(data.payload);
+      return;
+    }
     if (!data || data.__brighterm !== true || typeof data.id !== 'number') return;
     const entry = pending.get(data.id);
     if (!entry) return;
@@ -70,7 +88,8 @@ export function generateBridgeScript(pluginId: string): string {
       onThemeChanged: () => () => {}
     },
     notify: (title, body) => call('notify', [title, body]),
-    openTile: (builtinTypeId) => call('openTile', [builtinTypeId])
+    openTile: (builtinTypeId) => call('openTile', [builtinTypeId]),
+    onOpenFile: (cb) => onEvent('openFile', cb)
   };
 })();`
 }

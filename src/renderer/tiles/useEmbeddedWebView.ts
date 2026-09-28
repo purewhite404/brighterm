@@ -21,6 +21,8 @@ export function useEmbeddedWebView(
   const url = source?.url
   const partitionId = source?.partitionId
   const compactCss = source?.compactCss
+  // A tile may start without a page (a new Browser) and get one later.
+  const hasSource = Boolean(url && partitionId)
 
   useEffect(() => {
     if (!url || !partitionId) return
@@ -30,7 +32,7 @@ export function useEmbeddedWebView(
     }
     // The view's URL changes via navigation, not by re-creating it.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewId, partitionId])
+  }, [viewId, partitionId, hasSource])
 
   const report = (): void => {
     const el = ref.current

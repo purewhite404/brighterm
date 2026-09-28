@@ -142,6 +142,23 @@ export class PluginHostApiBridge {
     return { id, label }
   }
 
+  /**
+   * Grants a folder without a picker — used when the user opens a file from
+   * the Files tile in a plugin (e.g. Notes). Only the trusted shell calls this.
+   * The same folder always maps to the same handle.
+   */
+  grantFolder(pluginId: string, path: string): { id: string; label: string } {
+    this.requirePermission(pluginId, 'folders')
+    const folders = this.readFolders(pluginId)
+    const existing = Object.entries(folders).find(([, entry]) => entry.path === path)
+    if (existing) return { id: existing[0], label: existing[1].label }
+    const label = path.split(/[\\/]/).pop() || path
+    const id = `folder-${randomUUID()}`
+    folders[id] = { path, label }
+    writeFileSync(this.foldersPath(pluginId), JSON.stringify(folders, null, 2), 'utf-8')
+    return { id, label }
+  }
+
   listFiles(pluginId: string, handleId: string): Array<{ name: string; isDirectory: boolean }> {
     this.requirePermission(pluginId, 'folders')
     const root = this.resolveHandle(pluginId, handleId)

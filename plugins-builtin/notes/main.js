@@ -17,6 +17,12 @@ let folderHandle = null
 let files = [] // { name, isDirectory }
 let currentFile = null // file name of the currently open note
 let saveTimer = null
+// A non-.md file opened from the Files tile (a .txt, .log, config file...); listed alongside the notes.
+let extraFile = null
+
+const isMarkdown = (name) => name.toLowerCase().endsWith('.md')
+/** Notes show without ".md"; other files keep their full name so the extension stays visible. */
+const displayName = (name) => (isMarkdown(name) ? name.replace(/\.md$/i, '') : name)
 
 async function init() {
   folderHandle = await window.brighterm.storage.get('folderHandle')
@@ -58,7 +64,9 @@ changeFolderBtn.addEventListener('click', chooseFolder)
 
 async function refreshFileList() {
   const all = await window.brighterm.fs.listFiles(folderHandle)
-  files = all.filter((f) => !f.isDirectory && f.name.toLowerCase().endsWith('.md')).sort((a, b) => a.name.localeCompare(b.name))
+  files = all
+    .filter((f) => !f.isDirectory && (isMarkdown(f.name) || f.name === extraFile))
+    .sort((a, b) => a.name.localeCompare(b.name))
   renderFileList()
 }
 
@@ -72,7 +80,7 @@ function renderFileList() {
   for (const file of visible) {
     const row = document.createElement('button')
     row.className = 'file-row' + (file.name === currentFile ? ' file-row--active' : '')
-    row.textContent = file.name.replace(/\.md$/i, '')
+    row.textContent = displayName(file.name)
     row.addEventListener('click', () => openFile(file.name))
     fileListEl.appendChild(row)
   }
@@ -81,7 +89,7 @@ function renderFileList() {
 async function openFile(name) {
   currentFile = name
   const content = await window.brighterm.fs.readFile(folderHandle, name)
-  titleInput.value = name.replace(/\.md$/i, '')
+  titleInput.value = displayName(name)
   contentArea.value = content
   renderFileList()
 }
@@ -129,17 +137,36 @@ async function renameCurrent() {
     await saveCurrent()
     return
   }
-  const newName = `${titleInput.value.trim() || 'Untitled'}.md`
+  const title = titleInput.value.trim()
+  const newName = isMarkdown(currentFile) ? `${title || 'Untitled'}.md` : title || currentFile
   if (newName === currentFile) return
   const oldName = currentFile
   const content = contentArea.value
   await window.brighterm.fs.writeFile(folderHandle, newName, content)
   await window.brighterm.fs.deleteFile(folderHandle, oldName)
   currentFile = newName
+  if (extraFile === oldName) extraFile = newName
   await refreshFileList()
 }
 
 contentArea.addEventListener('input', scheduleSave)
 titleInput.addEventListener('change', renameCurrent)
 
-init()
+const ready = init()
+
+// "Open in Notes" from the Files tile: switch to that file's folder and open it.
+window.brighterm.onOpenFile(async ({ folder, name }) => {
+  await ready
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+    await saveCurrent()
+  }
+  folderHandle = folder
+  extraFile = isMarkdown(name) ? null : name
+  await window.brighterm.storage.set('folderHandle', folder)
+  await refreshFileList()
+  showScreen('notes')
+  await openFile(name)
+  contentArea.focus()
+})

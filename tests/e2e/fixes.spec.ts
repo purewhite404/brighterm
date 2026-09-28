@@ -195,11 +195,15 @@ test('Browser defaults to DuckDuckGo; Calendar shows this month with today marke
   const s = await launch()
   try {
     await dock(s.window, 'Browser').click()
-    await expect(s.window.locator('.bt-browser__address')).toHaveValue(/duckduckgo\.com/)
+    await expect(s.window.locator('.bt-browser__address')).toHaveAttribute('placeholder', /DuckDuckGo/)
 
     await dock(s.window, 'Calendar').click()
+    // This month — or the next one during this month's last week (its first row still has today).
     const now = new Date()
-    await expect(s.window.locator('.bt-calendar__title')).toHaveText(`${now.getFullYear()}年 ${now.getMonth() + 1}月`)
+    const last = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    const inLastWeek = now.getDate() >= last.getDate() - last.getDay()
+    const shown = new Date(now.getFullYear(), now.getMonth() + (inLastWeek ? 1 : 0), 1)
+    await expect(s.window.locator('.bt-calendar__title')).toHaveText(`${shown.getFullYear()}年 ${shown.getMonth() + 1}月`)
     await expect(s.window.locator('.bt-calendar__day.is-today')).toHaveCount(1)
     expect(s.pageErrors).toEqual([])
   } finally {

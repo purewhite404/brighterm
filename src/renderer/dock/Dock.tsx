@@ -27,6 +27,7 @@ export function Dock(): React.JSX.Element {
   const config = useAppStore((s) => s.config)
   const switchWorkspace = useAppStore((s) => s.switchWorkspace)
   const createWorkspace = useAppStore((s) => s.createWorkspace)
+  const deleteWorkspace = useAppStore((s) => s.deleteWorkspace)
   const addTile = useAppStore((s) => s.addTile)
   const setPaletteOpen = useAppStore((s) => s.setPaletteOpen)
   const [plugins, setPlugins] = useState<PluginListItem[]>([])
@@ -83,13 +84,25 @@ export function Dock(): React.JSX.Element {
     <div className="bt-dock">
       <div className="bt-dock__section">
         {config.workspaces.map((ws) => (
-          <DockButton
-            key={ws.id}
-            icon={ws.icon}
-            label={ws.name}
-            active={ws.id === config.activeWorkspaceId}
-            onClick={() => switchWorkspace(ws.id)}
-          />
+          <div key={ws.id} className="bt-dock__workspace">
+            <DockButton
+              icon={ws.icon}
+              label={ws.name}
+              active={ws.id === config.activeWorkspaceId}
+              onClick={() => switchWorkspace(ws.id)}
+            />
+            {/* Only an empty workspace can be removed here, so no tiles are ever lost by a stray click. */}
+            {config.workspaces.length > 1 && Object.keys(ws.tiles).length === 0 && (
+              <button
+                className="bt-dock__workspace-remove"
+                title={`「${ws.name}」を削除`}
+                aria-label={`ワークスペース「${ws.name}」を削除`}
+                onClick={() => deleteWorkspace(ws.id)}
+              >
+                <Icon name="close" size={10} />
+              </button>
+            )}
+          </div>
         ))}
         <DockButton icon="plus" label="新しいワークスペース" onClick={() => createWorkspace('新規', 'home')} />
       </div>

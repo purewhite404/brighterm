@@ -63,6 +63,22 @@ e2e test that reproduces the *user's actual scenario* and look at a screenshot
   CSS vars → `dimensions` errors). Only `fit()` when the container has a size.
 - **Windows PowerShell 5.1** launched from a PS7 session inherits PS7's `PSModulePath`
   and can't load PSReadLine — `shellEnv()` in `ptyManager.ts` strips it.
+- **PowerShell 7 from the Store/winget** is only an app execution alias
+  (`%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`); `existsSync` says false for it,
+  `lstat` works, and node-pty spawns it fine — see `findPwsh7()`.
+- **si.mem() on Windows spawns PowerShell** — too slow for the 0.5 s SysMon poll;
+  `sysMonitor.ts` uses `os.totalmem/freemem` there. `si.processes()` is polled every 3 s only.
+- **Windows file attributes** (hidden/system/readonly) come from one `cmd /u /c dir /a:X /b`
+  call per folder (`fsService.ts`); `attrib` mangles non-ASCII names in its output.
+- **Files → Notes**: file type is sniffed from content (`fileSniff.ts`, not the extension).
+  Plain text is handed to Notes via the tile config `openRequest` → `PluginFrame` grants
+  the folder and posts an `openFile` event (`brighterm.onOpenFile`).
+- **xterm FitAddon** sizes rows from the *parent's* CSS height (border-box includes
+  padding) — keep padding on an outer wrapper, not on the element xterm opens in.
+- **Playwright screenshots show only the shell page**, not the WebContentsViews on top
+  (browser, PDF preview…). To check those, `capturePage()` the view via `app.evaluate`.
+- **Tile state that must survive restarts** (Browser URL, Files expanded folders) goes in
+  the tile's `config` via `updateTileConfig`.
 - **Plugin HTML/CSS**: an author `display:` rule overrides the `hidden` attribute; the
   Notes plugin has `[hidden]{display:none!important}` for that reason.
 - **Host API** `fs.*` receives a whole handle object `{id,label}`; unwrap with

@@ -96,5 +96,11 @@ export function TerminalTile({ tileId }: { tileId: string }): React.JSX.Element 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tileId])
 
-  return <div ref={containerRef} className="bt-terminal-tile" onClick={() => containerRef.current?.querySelector('textarea')?.focus()} />
+  // xterm goes in an unpadded inner box: FitAddon sizes rows from its parent's CSS height, which
+  // (border-box) includes padding — with the padding on the same element the last row was cut off.
+  return (
+    <div className="bt-terminal-tile" onClick={() => containerRef.current?.querySelector('textarea')?.focus()}>
+      <div ref={containerRef} className="bt-terminal-tile__host" />
+    </div>
+  )
 }

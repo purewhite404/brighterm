@@ -4,8 +4,18 @@ import { is } from './utils/env'
 import { ConfigStore } from './configStore'
 import { ViewManager } from './viewManager'
 import { PtyManager, listAvailableShells, defaultShell } from './ptyManager'
-import { FsWatchRegistry, listDir, readTextFile, writeTextFile, getHomeDir } from './fsService'
+import {
+  FsWatchRegistry,
+  createEntry,
+  getHomeDir,
+  inspectFile,
+  listDir,
+  readTextFile,
+  statEntry,
+  writeTextFile
+} from './fsService'
 import { getSystemSnapshot } from './sysMonitor'
+import { summarizeAppMemory } from './appMemory'
 import { EtcService } from './etc/etcService'
 import { getShortcutsForOs, openShortcut, detectLinuxDesktopSettingsTool } from './settingsShortcuts'
 import { PluginHost } from './plugins/pluginHost'
@@ -65,7 +75,8 @@ let lastGoogleCardIds: Set<string> = new Set()
 let secretStore: SecretStore
 const fsWatchers = new FsWatchRegistry()
 
-const MEMORY_TICK_MS = 5000
+/** Also the System Monitor's refresh rate for app memory. getAppMetrics() is cheap. */
+const MEMORY_TICK_MS = 500
 
 function send(channel: string, ...args: unknown[]): void {
   shellView?.webContents.send(channel, ...args)
@@ -160,7 +171,9 @@ function registerIpcHandlers(): void {
     await viewManager.suspend(tileId)
   })
   ipcMain.handle('tile:hide', (_event, tileId: string) => viewManager.hide(tileId))
-  ipcMain.handle('tile:navigate', (_event, tileId: string, url: string) => viewManager.navigate(tileId, url))
+  ipcMain.handle('tile:navigate', (_event, tileId: string, url: string, onlyIfChanged?: boolean) =>
+    viewManager.navigate(tileId, url, onlyIfChanged)
+  )
   ipcMain.handle('tile:go-back', (_event, tileId: string) => viewManager.goBack(tileId))
   ipcMain.handle('tile:go-forward', (_event, tileId: string) => viewManager.goForward(tileId))
   ipcMain.handle('tile:reload', (_event, tileId: string) => viewManager.reload(tileId))
@@ -196,8 +209,13 @@ function registerIpcHandlers(): void {
   })
   ipcMain.handle(IPC.fsWatchStop, (_event, watchId: string) => fsWatchers.stop(watchId))
   ipcMain.handle('fs:home-dir', () => getHomeDir())
+  ipcMain.handle('fs:stat-entry', (_event, filePath: string) => statEntry(filePath))
+  ipcMain.handle('fs:inspect', (_event, filePath: string) => inspectFile(filePath))
+  ipcMain.handle('fs:create', (_event, parentDir: string, name: string, kind: 'dir' | 'file') =>
+    createEntry(parentDir, name, kind)
+  )
 
-  ipcMain.handle('sysmon:snapshot', () => getSystemSnapshot())
+  ipcMain.handle('sysmon:snapshot', (_event, opts?: { processes?: boolean }) => getSystemSnapshot(opts))
 
   ipcMain.handle('shell:open-external', (_event, url: string) => shell.openExternal(url))
   ipcMain.handle('shell:open-path', (_event, path: string) => shell.openPath(path))
@@ -253,6 +271,9 @@ function registerIpcHandlers(): void {
     send('plugins:changed')
   })
   ipcMain.handle('plugins:app-url', (_event, id: string) => pluginAppUrl(id))
+  ipcMain.handle('plugins:grant-folder', (_event, pluginId: string, path: string) =>
+    hostApiBridge.grantFolder(pluginId, path)
+  )
   ipcMain.handle(
     IPC.pluginsHostCall,
     async (_event, pluginId: string, method: string, args: unknown[]) => callHostApi(pluginId, method, args)
@@ -401,26 +422,40 @@ function startGooglePollLoop(): void {
 }
 
 function startMemoryLoop(): void {
+  let inFlight = false
   setInterval(async () => {
+    // Suspending captures a snapshot first; don't start another tick meanwhile.
+    if (inFlight) return
+    inFlight = true
+    try {
+      await memoryTick()
+    } finally {
+      inFlight = false
+    }
+  }, MEMORY_TICK_MS)
+}
+
+async function memoryTick(): Promise<void> {
     const config = configStore.get()
     const suspendCandidates = viewManager.getSuspendCandidates(config.suspendAfterMs)
     for (const tileId of suspendCandidates) {
       await viewManager.suspend(tileId)
     }
 
-    const memByTile = await viewManager.getMemoryByTile()
-    const totalAppBytes = [...memByTile.values()].reduce((sum, v) => sum + v, 0)
+    const { totalAppBytes, rows } = summarizeAppMemory(
+      app.getAppMetrics().map((m) => ({ pid: m.pid, bytes: m.memory.workingSetSize * 1024 })),
+      viewManager.getViewPids(),
+      shellView?.webContents.getOSProcessId() ?? null
+    )
     send(IPC.memorySnapshot, {
       totalAppBytes,
-      budgetBytes: config.memoryBudgetBytes,
-      tiles: [...memByTile.entries()].map(([tileId, memoryBytes]) => ({
+      tiles: rows.map(({ id: tileId, memoryBytes }) => ({
         tileId,
         memoryBytes,
         suspended: viewManager.isSuspended(tileId),
         lastActiveAt: Date.now()
       }))
     })
-  }, MEMORY_TICK_MS)
 }
 
 app.whenReady().then(() => {

@@ -69,6 +69,12 @@ export interface BrightermHost {
   theme: BrightermTheme
   notify(title: string, body?: string): Promise<void>
   openTile(builtinTypeId: string): Promise<void>
+  /**
+   * Called when the user opens a file in this plugin from the Files tile
+   * (plugins with the "folders" permission). `folder` is already granted.
+   * Returns an unsubscribe function.
+   */
+  onOpenFile(cb: (file: { folder: BrightermFolderHandle; name: string }) => void): () => void
 }
 
 declare global {

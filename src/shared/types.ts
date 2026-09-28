@@ -163,7 +163,6 @@ export interface TileMemoryInfo {
 
 export interface SystemMemorySnapshot {
   totalAppBytes: number
-  budgetBytes: number
   tiles: TileMemoryInfo[]
 }
 
@@ -175,7 +174,6 @@ export interface AppConfig {
   workspaces: Workspace[]
   activeWorkspaceId: string | null
   webTileDefinitions: WebTileDefinition[]
-  memoryBudgetBytes: number
   suspendAfterMs: number
   mail: {
     /** One of MAIL_PROVIDERS' ids, or 'custom' to use `customUrl`. */

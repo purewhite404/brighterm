@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { useAppStore, selectActiveWorkspace } from '../store/appStore'
 
+/** Set in a plugin tile's config (see FileExplorerTile) to open a file in it. */
+export interface OpenFileRequest {
+  folderPath: string
+  name: string
+  /** Makes each request distinct, so opening the same file twice still triggers. */
+  nonce: number
+}
+
 interface BridgeMessage {
   __brighterm: true
   id: number
@@ -19,9 +27,12 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
   const tile = useAppStore((s) => selectActiveWorkspace(s)?.tiles[tileId])
   const iframeRef = useRef<HTMLIFrameElement | null>(null)
   const [src, setSrc] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState(false)
+  const updateTileConfig = useAppStore((s) => s.updateTileConfig)
 
-  const config = (tile?.config ?? {}) as { pluginId?: string }
+  const config = (tile?.config ?? {}) as { pluginId?: string; openRequest?: OpenFileRequest | null }
   const pluginId = config.pluginId
+  const openRequest = config.openRequest
 
   useEffect(() => {
     if (!pluginId) return
@@ -57,6 +68,23 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
     return () => window.removeEventListener('message', onMessage)
   }, [pluginId])
 
+  // "Open in <plugin>" from the Files tile: grant the file's folder, then hand the plugin the file.
+  useEffect(() => {
+    if (!pluginId || !loaded || !openRequest) return
+    let cancelled = false
+    void window.api.plugins.grantFolder(pluginId, openRequest.folderPath).then((folder) => {
+      if (cancelled) return
+      iframeRef.current?.contentWindow?.postMessage(
+        { __brighterm: true, event: 'openFile', payload: { folder, name: openRequest.name } },
+        '*'
+      )
+      updateTileConfig(tileId, { openRequest: null })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [pluginId, loaded, openRequest, tileId, updateTileConfig])
+
   if (!pluginId) {
     return <div className="bt-tile-body bt-tile-body--centered bt-text-muted">プラグインが指定されていません</div>
   }
@@ -70,6 +98,7 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
       src={src}
       title={tile?.title ?? pluginId}
       className="bt-plugin-frame"
+      onLoad={() => setLoaded(true)}
       sandbox="allow-scripts allow-forms allow-modals allow-popups"
     />
   )

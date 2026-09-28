@@ -1,5 +1,6 @@
 import os from 'node:os'
-import { existsSync } from 'node:fs'
+import { existsSync, lstatSync } from 'node:fs'
+import path from 'node:path'
 import * as pty from 'node-pty'
 
 /**
@@ -15,6 +16,42 @@ export interface ShellOption {
   args: string[]
 }
 
+/**
+ * existsSync() reports false for Windows "app execution aliases" (how the
+ * Microsoft Store / winget build of PowerShell 7 puts pwsh.exe on PATH), even
+ * though they launch fine — lstat sees the reparse point itself.
+ */
+function fileExists(filePath: string): boolean {
+  if (existsSync(filePath)) return true
+  try {
+    lstatSync(filePath)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * PowerShell 7 lives in Program Files for the MSI install, but the Store /
+ * winget build is only reachable through an alias in WindowsApps (on PATH).
+ */
+export function findPwsh7(
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (filePath: string) => boolean = fileExists
+): string | null {
+  const programFiles = env.ProgramFiles ?? 'C:\\Program Files'
+  const candidates = [
+    path.win32.join(programFiles, 'PowerShell', '7', 'pwsh.exe'),
+    path.win32.join(programFiles, 'PowerShell', '7-preview', 'pwsh.exe'),
+    ...(env.Path ?? env.PATH ?? '')
+      .split(';')
+      .filter(Boolean)
+      .map((dir) => path.win32.join(dir, 'pwsh.exe')),
+    ...(env.LOCALAPPDATA ? [path.win32.join(env.LOCALAPPDATA, 'Microsoft', 'WindowsApps', 'pwsh.exe')] : [])
+  ]
+  return candidates.find((candidate) => exists(candidate)) ?? null
+}
+
 /** Enumerate shells that actually exist on this machine, best guess first. */
 export function listAvailableShells(): ShellOption[] {
   const platform = os.platform()
@@ -22,13 +59,13 @@ export function listAvailableShells(): ShellOption[] {
 
   if (platform === 'win32') {
     const systemRoot = process.env.SystemRoot ?? 'C:\\Windows'
-    const pwsh7 = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
+    const pwsh7 = findPwsh7()
     const powershell = `${systemRoot}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`
     const cmd = `${systemRoot}\\System32\\cmd.exe`
     const gitBash = 'C:\\Program Files\\Git\\bin\\bash.exe'
     const wslExe = `${systemRoot}\\System32\\wsl.exe`
 
-    if (existsSync(pwsh7)) candidates.push({ id: 'pwsh7', label: 'PowerShell 7', path: pwsh7, args: [] })
+    if (pwsh7) candidates.push({ id: 'pwsh7', label: 'PowerShell 7', path: pwsh7, args: [] })
     if (existsSync(powershell))
       candidates.push({ id: 'powershell', label: 'Windows PowerShell', path: powershell, args: [] })
     if (existsSync(gitBash)) candidates.push({ id: 'git-bash', label: 'Git Bash', path: gitBash, args: ['--login', '-i'] })

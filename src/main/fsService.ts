@@ -1,7 +1,10 @@
-import { readdirSync, readFileSync, writeFileSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { closeSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync } from 'node:fs'
+import { execFile } from 'node:child_process'
+import { basename, dirname, join } from 'node:path'
 import { homedir } from 'node:os'
+import { pathToFileURL } from 'node:url'
 import chokidar, { type FSWatcher } from 'chokidar'
+import { sniffContent, type SniffResult } from './fileSniff'
 
 export function getHomeDir(): string {
   return homedir()
@@ -13,35 +16,209 @@ export interface DirEntry {
   isDirectory: boolean
   sizeBytes: number
   modifiedAt: number
+  createdAt: number
+  /** Dot files everywhere; on Windows also anything with the Hidden or System attribute. */
+  hidden: boolean
+  /** `ls -l` style on POSIX ("drwxr-xr-x"), PowerShell `Mode` style on Windows ("d-r--"). */
+  mode: string
 }
 
+// ---------------------------------------------------------------------------
+// Mode strings
+// ---------------------------------------------------------------------------
+
+/** "drwxr-xr-x" / "-rw-r--r--" / "lrwxrwxrwx" from a stat mode. */
+export function formatPosixMode(mode: number, kind: 'file' | 'dir' | 'link'): string {
+  const type = kind === 'dir' ? 'd' : kind === 'link' ? 'l' : '-'
+  const bits = ['r', 'w', 'x']
+  let perms = ''
+  for (let shift = 6; shift >= 0; shift -= 3) {
+    for (let i = 0; i < 3; i++) perms += mode & (1 << (shift + 2 - i)) ? bits[i] : '-'
+  }
+  return type + perms
+}
+
+/** Windows file attribute flags as used by `dir /a:<flag>`. */
+export type WinAttr = 'a' | 'r' | 'h' | 's' | 'l'
+const WIN_ATTRS: WinAttr[] = ['a', 'r', 'h', 's', 'l']
+
+/** PowerShell's Mode column: d a r h s l, "-" where unset (e.g. "d----", "-a---", "la---"). */
+export function formatWinMode(isDirectory: boolean, attrs: ReadonlySet<WinAttr>): string {
+  if (attrs.has('l')) return 'l' + ['a', 'r', 'h', 's'].map((a) => (attrs.has(a as WinAttr) ? a : '-')).join('')
+  return (isDirectory ? 'd' : '-') + ['a', 'r', 'h', 's'].map((a) => (attrs.has(a as WinAttr) ? a : '-')).join('')
+}
+
+/**
+ * Parses the output of `dir /a:a /b & echo ::r & dir /a:r /b & ...` —
+ * sections of bare names, each introduced by "::<flag>" (the first is 'a').
+ */
+export function parseWinAttrListing(output: string): Map<string, Set<WinAttr>> {
+  const result = new Map<string, Set<WinAttr>>()
+  let current: WinAttr = 'a'
+  for (const raw of output.split(/\r?\n/)) {
+    const line = raw.trim()
+    if (!line) continue
+    const marker = /^::([arhsl])$/.exec(line)
+    if (marker) {
+      current = marker[1] as WinAttr
+      continue
+    }
+    const set = result.get(line) ?? new Set<WinAttr>()
+    set.add(current)
+    result.set(line, set)
+  }
+  return result
+}
+
+/**
+ * Node can't read Windows attributes, so ask cmd's built-in `dir` (one
+ * process for all flags). `/u` makes it write UTF-16, which keeps non-ASCII
+ * names intact (the external `attrib` mangles them).
+ */
+function readWinAttributes(dirPath: string): Promise<Map<string, Set<WinAttr>>> {
+  const quoted = `"${dirPath.replace(/"/g, '')}"`
+  const script = WIN_ATTRS.map((flag, i) => `${i > 0 ? `echo ::${flag}& ` : ''}dir /a:${flag} /b ${quoted} 2>nul`).join(' & ')
+  return new Promise((resolve) => {
+    execFile(
+      'cmd.exe',
+      ['/u', '/d', '/s', '/c', `"${script}"`],
+      { windowsVerbatimArguments: true, encoding: 'buffer', windowsHide: true, timeout: 5000 },
+      (_err, stdout) => resolve(parseWinAttrListing(Buffer.from(stdout ?? []).toString('utf16le')))
+    )
+  })
+}
+
+// ---------------------------------------------------------------------------
+// Listing
+// ---------------------------------------------------------------------------
+
 /** List one directory's immediate children (not recursive — the tree expands lazily). */
-export function listDir(dirPath: string): DirEntry[] {
-  const names = readdirSync(dirPath, { withFileTypes: true })
-  return names
+export async function listDir(dirPath: string): Promise<DirEntry[]> {
+  const dirents = readdirSync(dirPath, { withFileTypes: true })
+  const winAttrs = process.platform === 'win32' ? await readWinAttributes(dirPath) : null
+
+  return dirents
     .map((dirent) => {
       const fullPath = join(dirPath, dirent.name)
       let sizeBytes = 0
       let modifiedAt = 0
+      let createdAt = 0
+      let posixMode = 0
+      let isDirectory = dirent.isDirectory()
+      const isLink = dirent.isSymbolicLink()
       try {
         const stat = statSync(fullPath)
-        sizeBytes = stat.size
+        sizeBytes = stat.isDirectory() ? 0 : stat.size
         modifiedAt = stat.mtimeMs
+        createdAt = stat.birthtimeMs
+        posixMode = isLink ? lstatSync(fullPath).mode : stat.mode
+        isDirectory = stat.isDirectory()
       } catch {
-        /* race: file removed between readdir and stat */
+        /* race (removed since readdir), dangling link or no permission */
       }
-      return {
-        name: dirent.name,
-        path: fullPath,
-        isDirectory: dirent.isDirectory(),
-        sizeBytes,
-        modifiedAt
-      }
+      const attrs = winAttrs?.get(dirent.name) ?? new Set<WinAttr>()
+      const hidden = dirent.name.startsWith('.') || attrs.has('h') || attrs.has('s')
+      const mode = winAttrs
+        ? formatWinMode(isDirectory, attrs)
+        : formatPosixMode(posixMode, isLink ? 'link' : isDirectory ? 'dir' : 'file')
+      return { name: dirent.name, path: fullPath, isDirectory, sizeBytes, modifiedAt, createdAt, hidden, mode }
     })
     .sort((a, b) => {
       if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
       return a.name.localeCompare(b.name)
     })
+}
+
+/** A single entry (for the tree's root), with the same fields as listDir's. */
+export async function statEntry(filePath: string): Promise<DirEntry> {
+  const parent = dirname(filePath)
+  if (parent !== filePath) {
+    try {
+      const found = (await listDir(parent)).find((e) => e.name === basename(filePath))
+      if (found) return { ...found, name: filePath }
+    } catch {
+      /* unreadable parent — fall back to a plain stat below */
+    }
+  }
+  const stat = statSync(filePath)
+  return {
+    name: filePath,
+    path: filePath,
+    isDirectory: stat.isDirectory(),
+    sizeBytes: 0,
+    modifiedAt: stat.mtimeMs,
+    createdAt: stat.birthtimeMs,
+    hidden: false,
+    mode: process.platform === 'win32' ? formatWinMode(stat.isDirectory(), new Set()) : formatPosixMode(stat.mode, 'dir')
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Creating
+// ---------------------------------------------------------------------------
+
+/** A single path component; rejects separators, "." / "..", and characters Windows forbids. */
+export function validateNewName(name: string): string | null {
+  const trimmed = name.trim()
+  if (!trimmed) return '名前を入力してください'
+  if (trimmed === '.' || trimmed === '..') return 'その名前は使えません'
+  if (/[\\/:*?"<>|]/.test(trimmed) || /[\u0000-\u001f]/.test(trimmed)) return '使えない文字が含まれています（\\ / : * ? " < > |）'
+  return null
+}
+
+/** Creates an empty folder or file in `parentDir`; fails if the name is taken. Returns the new path. */
+export function createEntry(parentDir: string, name: string, kind: 'dir' | 'file'): string {
+  const problem = validateNewName(name)
+  if (problem) throw new Error(problem)
+  const target = join(parentDir, name.trim())
+  if (kind === 'dir') mkdirSync(target)
+  else writeFileSync(target, '', { flag: 'wx' })
+  return target
+}
+
+// ---------------------------------------------------------------------------
+// Inspecting (preview)
+// ---------------------------------------------------------------------------
+
+const SNIFF_BYTES = 64 * 1024
+const TEXT_PREVIEW_BYTES = 256 * 1024
+const IMAGE_INLINE_LIMIT = 25 * 1024 * 1024
+
+export interface FileInspection extends SniffResult {
+  path: string
+  sizeBytes: number
+  /** Beginning of the file for text/code (truncated at TEXT_PREVIEW_BYTES). */
+  text?: string
+  truncated?: boolean
+  /** data: URL for images small enough to inline. */
+  dataUrl?: string
+  /** file:// URL, for media/PDF shown in a web view. */
+  fileUrl: string
+}
+
+function readPrefix(filePath: string, bytes: number): Buffer {
+  const fd = openSync(filePath, 'r')
+  try {
+    const buffer = Buffer.alloc(bytes)
+    const read = readSync(fd, buffer, 0, bytes, 0)
+    return buffer.subarray(0, read)
+  } finally {
+    closeSync(fd)
+  }
+}
+
+export function inspectFile(filePath: string): FileInspection {
+  const sizeBytes = statSync(filePath).size
+  const sniff = sniffContent(new Uint8Array(readPrefix(filePath, SNIFF_BYTES)))
+  const result: FileInspection = { ...sniff, path: filePath, sizeBytes, fileUrl: pathToFileURL(filePath).href }
+  if (sniff.kind === 'text' || sniff.kind === 'code') {
+    const prefix = readPrefix(filePath, TEXT_PREVIEW_BYTES)
+    result.text = new TextDecoder('utf-8').decode(prefix)
+    result.truncated = sizeBytes > prefix.length
+  } else if (sniff.kind === 'image' && sniff.mime && sizeBytes <= IMAGE_INLINE_LIMIT) {
+    result.dataUrl = `data:${sniff.mime};base64,${readFileSync(filePath).toString('base64')}`
+  }
+  return result
 }
 
 export function readTextFile(filePath: string): string {

@@ -42,6 +42,24 @@ export interface NavigationState {
   canGoForward: boolean
 }
 
+/**
+ * Gives every web page the built-in tiles' scrollbar (packages/sdk/ui/tokens.css):
+ * 8px, rounded, transparent track. User-origin !important beats the site's own
+ * ::-webkit-scrollbar rules; scrollbar-color is reset because any non-auto
+ * value makes Chromium ignore ::-webkit-scrollbar. scrollbar-width is left to
+ * the site so scrollbars it hides (width: none) stay hidden.
+ */
+export const SCROLLBAR_CSS = `
+* { scrollbar-color: auto !important; }
+::-webkit-scrollbar { width: 8px !important; height: 8px !important; background: transparent !important; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent !important; border: none !important; }
+::-webkit-scrollbar-button { display: none !important; }
+::-webkit-scrollbar-thumb { background: #3a3e4f !important; border-radius: 4px !important; border: none !important; }
+@media (prefers-color-scheme: light) {
+  ::-webkit-scrollbar-thumb { background: #c4c8d2 !important; }
+}
+`
+
 /** Strip the Electron/x.y.z token so Google (and others) don't block the embedded login flow. */
 function desktopUserAgent(originalUA: string): string {
   return originalUA.replace(/\s*Electron\/\S+/, '').replace(/\s*brighterm\/\S+/, '')
@@ -133,6 +151,12 @@ export class ViewManager {
       return { action: 'deny' }
     })
 
+    view.webContents.on('dom-ready', () => {
+      view.webContents.insertCSS(SCROLLBAR_CSS, { cssOrigin: 'user' }).catch(() => {
+        /* best-effort */
+      })
+    })
+
     if (entry.compactCss) {
       view.webContents.on('dom-ready', () => {
         view.webContents.insertCSS(entry.compactCss!).catch(() => {
@@ -175,9 +199,11 @@ export class ViewManager {
     entry.view?.setBounds({ x: 0, y: 0, width: 0, height: 0 })
   }
 
-  navigate(tileId: string, url: string): void {
+  /** `onlyIfChanged`: skip when the view already shows `url` (e.g. a preview re-shown for the same file). */
+  navigate(tileId: string, url: string, onlyIfChanged = false): void {
     const entry = this.views.get(tileId)
     if (!entry) return
+    if (onlyIfChanged && entry.url === url) return
     entry.url = url
     void entry.view?.webContents.loadURL(url).catch(() => {
       /* failed navigations surface as an error page in the view itself */
@@ -292,18 +318,11 @@ export class ViewManager {
     return this.views.get(tileId)?.suspended ?? false
   }
 
-  async getMemoryByTile(): Promise<Map<string, number>> {
-    const { app } = await import('electron')
-    const metrics = app.getAppMetrics()
-    const byPid = new Map(metrics.map((m) => [m.pid, m.memory.workingSetSize * 1024]))
-    const result = new Map<string, number>()
+  /** Renderer process id of every view (null while suspended), for per-tile memory. */
+  getViewPids(): Map<string, number | null> {
+    const result = new Map<string, number | null>()
     for (const entry of this.views.values()) {
-      if (!entry.view) {
-        result.set(entry.tileId, 0)
-        continue
-      }
-      const pid = entry.view.webContents.getOSProcessId()
-      result.set(entry.tileId, byPid.get(pid) ?? 0)
+      result.set(entry.tileId, entry.view ? entry.view.webContents.getOSProcessId() : null)
     }
     return result
   }

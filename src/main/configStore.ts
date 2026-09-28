@@ -26,7 +26,6 @@ function defaultConfig(): AppConfig {
     // Mail / Browser / Calendar are built-in tiles configured below; this
     // list is for extra user-defined web tiles.
     webTileDefinitions: [],
-    memoryBudgetBytes: 1.5 * 1024 * 1024 * 1024,
     suspendAfterMs: 10 * 60 * 1000,
     mail: { provider: 'gmail' },
     search: { engine: 'duckduckgo' },

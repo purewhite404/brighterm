@@ -66,3 +66,16 @@ export function eventsByDay(events: CalendarEventLike[]): Map<string, CalendarEv
   }
   return map
 }
+
+/**
+ * The month the calendar opens on: today's month, or the next one when today
+ * is in the month's last week (the Sunday-first week holding its last day) —
+ * the next month's grid starts with that same week, so today is still shown.
+ */
+export function initialMonth(today: Date): { year: number; month: number } {
+  const lastOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+  const lastWeekStart = new Date(lastOfMonth.getFullYear(), lastOfMonth.getMonth(), lastOfMonth.getDate() - lastOfMonth.getDay())
+  const day = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const shown = day >= lastWeekStart ? new Date(today.getFullYear(), today.getMonth() + 1, 1) : day
+  return { year: shown.getFullYear(), month: shown.getMonth() }
+}

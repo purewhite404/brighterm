@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron'
 import { IPC, type AppConfig, type Rect } from '@shared/types'
 import type { ShellOption } from '../main/ptyManager'
 import type { SystemSnapshot } from '../main/sysMonitor'
-import type { DirEntry } from '../main/fsService'
+import type { DirEntry, FileInspection } from '../main/fsService'
 import type { SettingsShortcut } from '../main/settingsShortcuts'
 import type { EtcFileDescriptor, DiffOp, HistoryEntry, AugeasNode } from '../main/etc/etcService'
 import type { ExecResult } from '../main/etc/validators'
@@ -30,7 +30,8 @@ const api = {
     suspend: (tileId: string) => ipcRenderer.invoke(IPC.tileSuspend, tileId),
     resume: (tileId: string) => ipcRenderer.invoke(IPC.tileResume, tileId),
     hide: (tileId: string) => ipcRenderer.invoke('tile:hide', tileId),
-    navigate: (tileId: string, url: string) => ipcRenderer.invoke('tile:navigate', tileId, url),
+    navigate: (tileId: string, url: string, onlyIfChanged?: boolean) =>
+      ipcRenderer.invoke('tile:navigate', tileId, url, onlyIfChanged),
     goBack: (tileId: string) => ipcRenderer.invoke('tile:go-back', tileId),
     goForward: (tileId: string) => ipcRenderer.invoke('tile:go-forward', tileId),
     reload: (tileId: string) => ipcRenderer.invoke('tile:reload', tileId),
@@ -108,6 +109,10 @@ const api = {
       ipcRenderer.invoke(IPC.fsWatchStart, watchId, dirPath),
     watchStop: (watchId: string): Promise<void> => ipcRenderer.invoke(IPC.fsWatchStop, watchId),
     homeDir: (): Promise<string> => ipcRenderer.invoke('fs:home-dir'),
+    statEntry: (filePath: string): Promise<DirEntry> => ipcRenderer.invoke('fs:stat-entry', filePath),
+    inspect: (filePath: string): Promise<FileInspection> => ipcRenderer.invoke('fs:inspect', filePath),
+    create: (parentDir: string, name: string, kind: 'dir' | 'file'): Promise<string> =>
+      ipcRenderer.invoke('fs:create', parentDir, name, kind),
     onChanged: (cb: (watchId: string, event: string, changedPath: string) => void) => {
       const listener = (_e: unknown, watchId: string, event: string, changedPath: string) =>
         cb(watchId, event, changedPath)
@@ -117,7 +122,7 @@ const api = {
   },
 
   sysmon: {
-    snapshot: (): Promise<SystemSnapshot> => ipcRenderer.invoke('sysmon:snapshot')
+    snapshot: (opts?: { processes?: boolean }): Promise<SystemSnapshot> => ipcRenderer.invoke('sysmon:snapshot', opts)
   },
 
   settings: {
@@ -153,6 +158,8 @@ const api = {
     rollback: (id: string, toVersion: string): Promise<boolean> => ipcRenderer.invoke(IPC.pluginsRollback, id, toVersion),
     uninstall: (id: string): Promise<void> => ipcRenderer.invoke(IPC.pluginsUninstall, id),
     getAppUrl: (id: string): Promise<string> => ipcRenderer.invoke('plugins:app-url', id),
+    grantFolder: (pluginId: string, path: string): Promise<{ id: string; label: string }> =>
+      ipcRenderer.invoke('plugins:grant-folder', pluginId, path),
     hostCall: (pluginId: string, method: string, args: unknown[]): Promise<unknown> =>
       ipcRenderer.invoke(IPC.pluginsHostCall, pluginId, method, args),
     onChanged: (cb: () => void) => {

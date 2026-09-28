@@ -21,8 +21,9 @@ export function App(): React.JSX.Element {
 
   useEffect(() => {
     const unsubTitle = window.api.tile.onTitleUpdated((viewId, title) => {
-      // Sub-views ("<tileId>::<name>") title their tile — except the AI Builder's chat pane.
-      if (viewId.endsWith('::chat')) return
+      // Sub-views ("<tileId>::<name>") title their tile — except side panes: the AI Builder's
+      // chat and the Files preview.
+      if (viewId.endsWith('::chat') || viewId.endsWith('::preview')) return
       setTileRuntime(viewId.split('::')[0], { titleOverride: title })
     })
     const unsubSnapshot = window.api.tile.onSnapshotUpdated((tileId, snapshot) => {

@@ -28,6 +28,8 @@ interface AppState {
   /** Add a tile and re-flow the workspace into a grid of roughly 16:9 cells. */
   addTile: (tile: Omit<TileInstance, 'id'>) => string
   closeTile: (tileId: string) => void
+  /** Shallow-merge into a tile's persisted config (whichever workspace it's in), e.g. a Browser's current URL. */
+  updateTileConfig: (tileId: string, patch: Record<string, unknown>) => void
   resizeSplitAt: (path: NodePath, ratio: number) => void
   moveTileTo: (tileId: string, targetTileId: string, zone: DropZone) => void
   setViewportAspect: (aspect: number) => void
@@ -155,6 +157,21 @@ export const useAppStore = create<AppState>((set, get) => ({
       delete runtime[tileId]
       return { runtime }
     })
+  },
+
+  updateTileConfig: (tileId, patch) => {
+    const { config } = get()
+    if (!config) return
+    const ws = config.workspaces.find((w) => w.tiles[tileId])
+    if (!ws) return
+    const tile = ws.tiles[tileId]
+    if (Object.entries(patch).every(([key, value]) => tile.config?.[key] === value)) return
+    const next = updateWorkspace(config, ws.id, (w) => ({
+      ...w,
+      tiles: { ...w.tiles, [tileId]: { ...tile, config: { ...tile.config, ...patch } } }
+    }))
+    set({ config: next })
+    persist(next)
   },
 
   resizeSplitAt: (path, ratio) => {
