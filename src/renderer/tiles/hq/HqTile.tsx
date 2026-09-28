@@ -2,6 +2,7 @@ import { useAppStore } from '../../store/appStore'
 import { Icon } from '../../ui/Icon'
 import { GoogleConnectPanel } from '../../ui/GoogleConnectPanel'
 import type { Card } from '@shared/types'
+import './hq.css'
 
 function priorityIcon(priority: Card['priority']): string {
   return priority === 'urgent' || priority === 'high' ? 'alert' : 'command'

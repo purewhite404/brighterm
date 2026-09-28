@@ -88,7 +88,7 @@ export function EtcEditor(): React.JSX.Element {
   return (
     <div className="bt-etc">
       <div className="bt-etc__sidebar">
-        <div className="bt-etc__title">よく使う /etc ファイル</div>
+        <div className="bt-section-title">よく使う /etc ファイル</div>
         {files.map((f) => (
           <button
             key={f.path}
@@ -127,18 +127,18 @@ export function EtcEditor(): React.JSX.Element {
             </div>
             {diff && <DiffView ops={diff} />}
             {validation !== undefined && (
-              <div className={`bt-etc__validation${validation && !validation.ok ? ' bt-etc__validation--error' : ''}`}>
+              <div className={`bt-message${validation && !validation.ok ? ' bt-message--error' : ''}`}>
                 {validation === null ? 'この種類のファイルには自動検証がありません。' : validation.output}
               </div>
             )}
             {saveResult && (
-              <div className={`bt-etc__validation${!saveResult.ok ? ' bt-etc__validation--error' : ''}`}>
+              <div className={`bt-message${!saveResult.ok ? ' bt-message--error' : ''}`}>
                 {saveResult.output}
               </div>
             )}
             {history.length > 0 && (
               <div className="bt-etc__history">
-                <div className="bt-etc__title">履歴</div>
+                <div className="bt-section-title">履歴</div>
                 {history.map((h) => (
                   <div key={h.fileName} className="bt-etc__history-row">
                     <span>{new Date(h.timestamp).toLocaleString('ja-JP')}</span>

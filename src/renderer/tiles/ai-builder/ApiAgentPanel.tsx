@@ -98,13 +98,13 @@ export function ApiAgentPanel(): React.JSX.Element {
   return (
     <div className="bt-ai-builder__panel">
       {!supported && (
-        <div className="bt-etc__validation bt-etc__validation--error">
+        <div className="bt-message bt-message--error">
           「{provider}」はまだ未対応です（OpenAI / OpenAI 互換のみ）。設定で切り替えてください。
         </div>
       )}
       {!hasKey && (
         <div>
-          <div className="bt-etc__title">API キー（{provider}）</div>
+          <div className="bt-section-title">API キー（{provider}）</div>
           <div className="bt-ai-builder__row">
             <input
               type="password"
@@ -117,7 +117,7 @@ export function ApiAgentPanel(): React.JSX.Element {
         </div>
       )}
       <div>
-        <div className="bt-etc__title">追加したいものを説明する</div>
+        <div className="bt-section-title">追加したいものを説明する</div>
         <div className="bt-ai-builder__row">
           <input
             value={request}

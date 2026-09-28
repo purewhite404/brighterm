@@ -5,6 +5,7 @@ import { Icon } from '../../ui/Icon'
 import { CpuChart, type CpuSample } from './CpuChart'
 import { formatBytes } from '../../ui/formatBytes'
 import { baseTileId } from '../shared/subViews'
+import './sysmon.css'
 
 const POLL_MS = 500
 const HISTORY_MS = 60 * 1000

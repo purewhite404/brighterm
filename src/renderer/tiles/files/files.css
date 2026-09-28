@@ -1,0 +1,406 @@
+/* Files tile — see src/renderer/styles/app.css for the shell and shared rules. */
+
+.bt-files {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  width: 100%;
+  overflow: hidden;
+  display: flex;
+  position: relative;
+  color: var(--bt-text-primary);
+}
+
+.bt-files__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.bt-files__header {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--bt-border);
+  padding: 0 var(--bt-space-2);
+}
+
+.bt-files__header .bt-files__colheader {
+  flex: 1;
+  min-width: 0;
+}
+
+.bt-files__tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.bt-file-explorer {
+  padding: var(--bt-space-2) var(--bt-space-2);
+}
+
+.bt-file-row,
+.bt-files__colheader {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-3);
+  padding: 3px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  font-size: var(--bt-font-size-sm);
+  white-space: nowrap;
+}
+
+.bt-file-row {
+  cursor: pointer;
+}
+
+.bt-files__colheader {
+  color: var(--bt-text-muted);
+  font-size: var(--bt-font-size-xs);
+  padding-top: var(--bt-space-2);
+  padding-bottom: var(--bt-space-2);
+}
+
+.bt-file-row:hover {
+  background: var(--bt-bg-3);
+}
+
+.bt-file-row--selected,
+.bt-file-row--selected:hover {
+  background: var(--bt-accent-soft);
+}
+
+.bt-file-row--hidden .bt-file-row__label {
+  opacity: 0.6;
+}
+
+.bt-file-row__label {
+  flex: 1;
+  min-width: 6em;
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+}
+
+.bt-file-row__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bt-file-row__loading {
+  color: var(--bt-text-muted);
+}
+
+.bt-file-row__col {
+  flex-shrink: 0;
+  font-family: var(--bt-font-mono);
+  /* Coding fonts join "----" into one long dash; mode strings need every character. */
+  font-variant-ligatures: none;
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-secondary);
+}
+
+.bt-files__colheader .bt-file-row__col {
+  font-family: inherit;
+  color: inherit;
+}
+
+.bt-file-row__col--mode {
+  width: 10.5ch;
+}
+
+.bt-file-row__col--size {
+  width: 6ch;
+  text-align: right;
+}
+
+.bt-file-row__col--time {
+  width: 16.5ch;
+}
+
+.bt-files__gear {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--bt-radius-sm);
+  background: transparent;
+  color: var(--bt-text-secondary);
+  cursor: pointer;
+}
+
+.bt-files__gear:hover,
+.bt-files__gear[aria-pressed='true'] {
+  background: var(--bt-bg-3);
+  color: var(--bt-text-primary);
+}
+
+/* Side panel: settings + preview on wide tiles; just the preview on narrower ones (see FilesLayout). */
+.bt-files__side {
+  width: min(40%, 420px);
+  min-width: 260px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-3);
+  padding: var(--bt-space-3);
+  border-left: 1px solid var(--bt-border);
+  background: var(--bt-bg-1);
+  overflow-y: auto;
+}
+
+.bt-files--split .bt-files__side {
+  width: 45%;
+  min-width: 0;
+  padding: var(--bt-space-2);
+  overflow: hidden;
+}
+
+.bt-files--stack {
+  flex-direction: column;
+}
+
+.bt-files--stack .bt-files__main {
+  min-height: 0;
+}
+
+.bt-files--stack .bt-files__side {
+  width: auto;
+  min-width: 0;
+  height: 50%;
+  padding: var(--bt-space-2);
+  border-left: none;
+  border-top: 1px solid var(--bt-border);
+  overflow: hidden;
+}
+
+/* Settings on narrow tiles: a small popover under the gear button. */
+.bt-files__popover {
+  position: absolute;
+  top: 34px;
+  right: var(--bt-space-2);
+  z-index: 3;
+  width: min(calc(100% - 16px), 340px);
+  max-height: calc(100% - 42px);
+  overflow-y: auto;
+  padding: var(--bt-space-3);
+  padding-top: 30px;
+  border: 1px solid var(--bt-border-strong);
+  border-radius: var(--bt-radius-md);
+  background: var(--bt-bg-1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.bt-files__popover .bt-files__settings {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.bt-files__icon-button {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--bt-radius-sm);
+  background: transparent;
+  color: var(--bt-text-secondary);
+  cursor: pointer;
+}
+
+.bt-files__icon-button:hover {
+  background: var(--bt-bg-3);
+}
+
+.bt-files__popover-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
+
+.bt-files__settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-2);
+  font-size: var(--bt-font-size-sm);
+  padding-bottom: var(--bt-space-3);
+  border-bottom: 1px solid var(--bt-border);
+}
+
+.bt-files__field {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+}
+
+.bt-files__field--wrap {
+  flex-wrap: wrap;
+}
+
+.bt-files__field > span {
+  color: var(--bt-text-secondary);
+  min-width: 6.5em;
+}
+
+.bt-files__field select,
+.bt-files__field input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border-strong);
+  background: var(--bt-bg-0);
+  color: var(--bt-text-primary);
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.bt-files__field button,
+.bt-files__preview-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border-strong);
+  background: var(--bt-bg-2);
+  color: var(--bt-text-primary);
+  font-family: inherit;
+  font-size: var(--bt-font-size-xs);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bt-files__field button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.bt-files__check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+}
+
+.bt-files__create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-1);
+}
+
+.bt-files__create-target {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bt-files__message {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-secondary);
+}
+
+.bt-files__message--error {
+  color: var(--bt-danger);
+}
+
+.bt-files__preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-2);
+}
+
+.bt-files__preview-title {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+}
+
+.bt-files__preview-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bt-files__preview-meta {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-muted);
+  margin: 2px 0 var(--bt-space-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bt-files--split .bt-files__preview,
+.bt-files--stack .bt-files__preview {
+  gap: var(--bt-space-1);
+}
+
+.bt-files--split .bt-files__preview-meta,
+.bt-files--stack .bt-files__preview-meta {
+  margin-bottom: 0;
+}
+
+.bt-files__preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bt-space-1);
+}
+
+.bt-files__preview-empty {
+  color: var(--bt-text-muted);
+  font-size: var(--bt-font-size-sm);
+  padding: var(--bt-space-3) 0;
+}
+
+.bt-files__image-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bt-files__image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--bt-radius-sm);
+  background: repeating-conic-gradient(var(--bt-bg-2) 0 25%, var(--bt-bg-3) 0 50%) 0 0 / 16px 16px;
+}
+
+.bt-files__code {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  overflow: auto;
+  padding: var(--bt-space-2);
+  border: 1px solid var(--bt-border);
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-bg-0);
+  font-family: var(--bt-font-mono);
+  font-size: var(--bt-font-size-xs);
+  line-height: 1.5;
+  white-space: pre;
+  user-select: text;
+}
+
+.bt-files__media {
+  flex: 1;
+  min-height: 0;
+  border-radius: var(--bt-radius-sm);
+  overflow: hidden;
+}

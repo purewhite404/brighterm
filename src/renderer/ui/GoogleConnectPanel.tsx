@@ -76,7 +76,7 @@ export function GoogleConnectPanel({
       <button onClick={saveCredsAndConnect} disabled={busy} style={{ alignSelf: 'flex-start' }}>
         接続する（ブラウザが開きます）
       </button>
-      {error && <div className="bt-etc__validation bt-etc__validation--error">{error}</div>}
+      {error && <div className="bt-message bt-message--error">{error}</div>}
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { useAppStore } from '../../store/appStore'
 import { Icon } from '../../ui/Icon'
 import { GoogleConnectPanel } from '../../ui/GoogleConnectPanel'
 import { buildMonthGrid, dateKey, eventsByDay, initialMonth, type CalendarEventLike } from './calendarGrid'
+import './calendar.css'
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土']
 
@@ -108,7 +109,7 @@ export function CalendarTile(): React.JSX.Element {
           }}
         />
       )}
-      {error && <div className="bt-etc__validation bt-etc__validation--error">{error}</div>}
+      {error && <div className="bt-message bt-message--error">{error}</div>}
 
       <div className="bt-calendar__grid">
         {WEEKDAYS.map((w, i) => (
@@ -146,7 +147,7 @@ export function CalendarTile(): React.JSX.Element {
 
       {source === 'google' && googleConnected && (
         <div className="bt-calendar__agenda">
-          <div className="bt-etc__title">{selected.replace(/-/g, '/')} の予定</div>
+          <div className="bt-section-title">{selected.replace(/-/g, '/')} の予定</div>
           {selectedEvents.length === 0 ? (
             <div className="bt-text-muted">予定はありません</div>
           ) : (

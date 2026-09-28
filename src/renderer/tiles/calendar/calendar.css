@@ -1,0 +1,149 @@
+/* Calendar tile — see src/renderer/styles/app.css for the shell and shared rules. */
+
+.bt-calendar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-3);
+}
+
+/* The month grid stretches to the tile's height instead of overflowing it. */
+.bt-calendar__grid {
+  flex: 1 0 auto;
+  grid-template-rows: auto;
+  grid-auto-rows: minmax(40px, 1fr);
+}
+
+.bt-calendar__toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+}
+
+.bt-calendar__toolbar button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border);
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+  font-size: var(--bt-font-size-sm);
+  cursor: pointer;
+}
+
+.bt-calendar__title {
+  font-size: var(--bt-font-size-lg);
+  font-weight: 600;
+  min-width: 7.5em;
+  text-align: center;
+}
+
+.bt-calendar__grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.bt-calendar__weekday {
+  text-align: center;
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-muted);
+  padding: 2px 0;
+}
+
+.bt-calendar__day {
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  font-family: inherit;
+}
+
+.bt-calendar__day:hover {
+  background: var(--bt-bg-3);
+}
+
+.bt-calendar__day.is-outside {
+  color: var(--bt-text-muted);
+  background: transparent;
+}
+
+.bt-calendar__day.is-selected {
+  border-color: var(--bt-accent);
+}
+
+.bt-calendar__date {
+  font-size: var(--bt-font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.bt-calendar__day.is-today .bt-calendar__date {
+  align-self: flex-start;
+  min-width: 22px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--bt-accent);
+  color: var(--bt-text-on-accent);
+  text-align: center;
+}
+
+.bt-calendar__day.is-sun:not(.is-today) > .bt-calendar__date,
+.bt-calendar__weekday.is-sun {
+  color: var(--bt-danger);
+}
+
+.bt-calendar__day.is-sat:not(.is-today) > .bt-calendar__date,
+.bt-calendar__weekday.is-sat {
+  color: var(--bt-accent-strong);
+}
+
+.bt-calendar__event-chip {
+  font-size: var(--bt-font-size-xs);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--bt-accent-soft);
+  color: var(--bt-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bt-calendar__more {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-muted);
+}
+
+.bt-calendar__agenda {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.bt-calendar__agenda-row {
+  display: flex;
+  gap: var(--bt-space-3);
+  padding: var(--bt-space-2);
+  border: none;
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.bt-calendar__agenda-time {
+  min-width: 4em;
+  color: var(--bt-text-secondary);
+  font-variant-numeric: tabular-nums;
+}

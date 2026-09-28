@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { useAppStore } from '../../store/appStore'
 import { useTileConfig } from '../shared/useTileConfig'
+import './terminal.css'
 
 /** xterm measures glyphs on a canvas, which can't resolve CSS variables — hand it the real font stack. */
 function monoFontStack(): string {

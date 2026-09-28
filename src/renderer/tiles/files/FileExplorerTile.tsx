@@ -9,6 +9,7 @@ import { creationTarget, fitColumns, resolveView, type FileViewOptions } from '.
 import { ColumnHeader, FilesContext, TreeNode } from './FileTree'
 import { FilesSettingsPanel } from './FilesSettingsPanel'
 import { FilePreview } from './FilePreview'
+import './files.css'
 
 /**
  * How the tile is laid out, by its width:

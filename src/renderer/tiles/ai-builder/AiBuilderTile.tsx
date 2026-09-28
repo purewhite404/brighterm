@@ -7,6 +7,7 @@ import { Icon } from '../../ui/Icon'
 import { EmbeddedWebView } from '../shared/EmbeddedWebView'
 import { sidePaneId } from '../shared/subViews'
 import { ApiAgentPanel } from './ApiAgentPanel'
+import './ai-builder.css'
 
 function IssueList({ result }: { result: PluginInstallResult }): React.JSX.Element {
   return (
@@ -125,7 +126,7 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
         </div>
         <div className="bt-ai-builder__panel">
         <div>
-          <div className="bt-etc__title">1. 追加したいものを説明する</div>
+          <div className="bt-section-title">1. 追加したいものを説明する</div>
           <div className="bt-ai-builder__row">
             <input
               value={request}
@@ -140,7 +141,7 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
         </div>
 
         <div>
-          <div className="bt-etc__title">2. AI の返信を貼り付ける</div>
+          <div className="bt-section-title">2. AI の返信を貼り付ける</div>
           <textarea
             className="bt-ai-builder__textarea"
             value={bundleText}
@@ -164,7 +165,7 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
 
         {validation && (
           <div>
-            <div className="bt-etc__title">結果</div>
+            <div className="bt-section-title">結果</div>
             <IssueList result={validation} />
             {validation.errors.length > 0 && (
               <CopyButton getText={fixPromptText} label="修正依頼をコピー" style={{ marginTop: 8 }} />
@@ -173,7 +174,7 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
         )}
 
         {installResult?.ok && (
-          <div className="bt-etc__validation">
+          <div className="bt-message">
             「{installResult.manifest?.name}」をインストールしました。ドックから起動できます。
           </div>
         )}

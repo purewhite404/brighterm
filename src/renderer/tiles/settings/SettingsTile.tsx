@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { AppPreferences } from './AppPreferences'
 import { EtcEditor } from './EtcEditor'
 import { OsShortcutList } from './OsShortcutList'
+import './settings.css'
 
 export function SettingsTile(): React.JSX.Element {
   const [hasDesktopTool, setHasDesktopTool] = useState<boolean | null>(null)
@@ -20,7 +21,7 @@ export function SettingsTile(): React.JSX.Element {
   return (
     <div className="bt-tile-body bt-settings">
       <AppPreferences />
-      <div className="bt-etc__title" style={{ marginTop: 16 }}>
+      <div className="bt-section-title" style={{ marginTop: 16 }}>
         {showEtcEditor ? 'システム設定ファイル' : 'OS の設定'}
       </div>
       {showEtcEditor ? <EtcEditor /> : <OsShortcutList />}

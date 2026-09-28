@@ -4,6 +4,7 @@ import { useAppStore } from '../../store/appStore'
 import { EmbeddedWebView } from '../shared/EmbeddedWebView'
 import { useTileConfig } from '../shared/useTileConfig'
 import { Icon } from '../../ui/Icon'
+import './browser.css'
 
 /**
  * A plain browser: address/search bar + back/forward/reload.

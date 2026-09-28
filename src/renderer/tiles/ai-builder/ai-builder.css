@@ -1,0 +1,80 @@
+/* AI Builder tile — see src/renderer/styles/app.css for the shell and shared rules. */
+
+.bt-ai-builder {
+  display: flex;
+  height: 100%;
+}
+
+.bt-ai-builder__chat {
+  flex: 1.4;
+  min-width: 0;
+  border-right: 1px solid var(--bt-border);
+}
+
+.bt-ai-builder__panel {
+  flex: 1;
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  padding: var(--bt-space-3);
+  gap: var(--bt-space-3);
+  overflow-y: auto;
+}
+
+.bt-ai-builder__row {
+  display: flex;
+  gap: var(--bt-space-2);
+}
+
+.bt-ai-builder__row input {
+  flex: 1;
+  padding: var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border-strong);
+  background: var(--bt-bg-0);
+  color: var(--bt-text-primary);
+}
+
+.bt-ai-builder__row button,
+.bt-ai-builder__panel > button {
+  padding: var(--bt-space-2) var(--bt-space-3);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border-strong);
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+  cursor: pointer;
+}
+
+.bt-ai-builder__textarea {
+  min-height: 160px;
+  background: var(--bt-bg-0);
+  color: var(--bt-text-primary);
+  border: 1px solid var(--bt-border);
+  border-radius: var(--bt-radius-md);
+  padding: var(--bt-space-3);
+  font-family: var(--bt-font-mono);
+  font-size: var(--bt-font-size-xs);
+  resize: vertical;
+}
+
+.bt-ai-builder__issues {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-1);
+  font-size: var(--bt-font-size-sm);
+}
+
+.bt-ai-builder__issue--error {
+  color: var(--bt-danger);
+}
+
+.bt-ai-builder__issue--warning {
+  color: var(--bt-warning);
+}
+
+.bt-ai-builder__scope-note {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-muted);
+  border-top: 1px solid var(--bt-border);
+  padding-top: var(--bt-space-2);
+}

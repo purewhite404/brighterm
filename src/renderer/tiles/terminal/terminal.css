@@ -1,0 +1,16 @@
+/* Terminal tile — see src/renderer/styles/app.css for the shell and shared rules. */
+
+.bt-terminal-tile {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  padding: var(--bt-space-2);
+  display: flex;
+}
+
+.bt-terminal-tile__host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}

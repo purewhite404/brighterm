@@ -19,7 +19,7 @@ export function AppPreferences(): React.JSX.Element | null {
 
   return (
     <div className="bt-settings__prefs">
-      <div className="bt-etc__title">Brighterm の設定</div>
+      <div className="bt-section-title">Brighterm の設定</div>
       <label className="bt-settings__field">
         <span>メール</span>
         <select
