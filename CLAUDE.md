@@ -67,8 +67,21 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   each tile imports its own `tiles/<tile>/<tile>.css`. Don't borrow another tile's classes.
 - Plugins: `src/main/plugins/` (bundle parser, static analysis, `PluginHost` with
   versioned install/rollback, `plugin-app://` protocol, `hostApiBridge` permission
-  checks). Spec for plugin authors/AI: `packages/sdk/AGENTS.md`.
-  Bundled plugins in `plugins-builtin/` are (re)installed at every startup.
+  checks). Spec for plugin authors/AI: `packages/sdk/AGENTS.md` **plus**
+  `packages/sdk/host-api.d.ts` — both go into the AI Builder's request text and the
+  agent's system prompt (`?raw` imports); without the types ChatGPT guessed signatures.
+  Bundled plugins in `plugins-builtin/` are (re)installed at every startup (the list
+  IPC marks them `bundled`: the UI offers disable, not delete).
+- Plugin files the user picked: `fs.readFile` is text only (rejects binary with a hint);
+  images/video/PDF go through `fs.fileUrl()` → `plugin-app://<id>/__brighterm_file__/
+  <handle>/<path>`, served by `protocol.ts` after `hostApiBridge.resolveFile` checks
+  (`pluginFileUrl.ts`). Host API / validation errors are Japanese and say how to fix
+  the call — the tile shows them and the fix request passes them to the AI.
+- AI Builder (web-bridge): steps 1-3, step 2 is checked automatically (debounced);
+  `ValidationResult` lists the manifest's permissions as plain-words "features", not
+  warnings. `PluginFrame` shows failed host calls + uncaught plugin errors (reported by
+  `bridgeScript.ts`) in an error bar with a runtime fix request, and reloads when the
+  plugin's `installedAt` changes (reinstall of the same id).
 - Pure logic lives in small modules with `*.test.ts` next to them; Electron-dependent
   glue (pkexec, augtool, OAuth, OpenAI) is reviewed but not executable here.
 
@@ -172,11 +185,18 @@ Then (2026-09-28) a behaviour-preserving refactor into per-tile folders in rende
 main, CSS and e2e (see "Architecture"), plus one fix: a second launch no longer runs
 startup before quitting.
 
+Then (2026-09-29) AI Builder usability, from the user's hands-on report (their
+AI-made Photo Viewer failed: `readFile` couldn't read images and ChatGPT guessed the
+call signature; the "folders" permission notice looked like a warning): `fs.fileUrl`,
+Japanese errors, the 3-step flow, the plugin list (disable/delete), the error bar with
+fix request, reload on reinstall, "AI キット" under "上級者向け" and fixed in the package
+(`fs.cpSync` can't read inside `app.asar`; `*.d.ts` isn't packaged, so `host-api.d.ts`
+is written from the bundle). The user's first try is `tests/e2e/fixtures/
+photo-viewer-first-try.btbundle.txt`; the AI Builder now fills its tile (it used to
+shrink to its content).
+
 Known gaps / possible next steps:
-- **Packaged app only**: "AI キットを書き出す" fails — `fs.cpSync` can't read a folder
-  inside `app.asar` (ENOENT, verified in `release/win-unpacked`); and `packages/sdk/
-  host-api.d.ts` isn't in the package at all (electron-builder leaves `*.d.ts` out), so
-  the kit would lack it anyway. Works in dev.
+- No UI for plugin rollback (the IPC exists) or for the AI Builder's provider/model.
 - The AI Builder ChatGPT pane overflowing on paste is believed to be ChatGPT's own
   layout (our view bounds don't change); unverifiable here (Cloudflare).
 - Terminal shells' own memory isn't in SysMon's app total.
@@ -187,4 +207,3 @@ Known gaps / possible next steps:
 - No app icons in `resources/`; macOS signing not set up.
 - Background `connector.js` for plugins was deliberately descoped (sandboxing risk).
 - Renderer bundle is one ~1 MB chunk (no code splitting).
-- AI Builder has no UI to pick provider/model/base URL (config only).
