@@ -11,12 +11,12 @@ describe('handleId', () => {
   })
 
   it('throws for null/undefined instead of silently coercing to "[object Object]" (regression)', () => {
-    expect(() => handleId(null)).toThrow(/invalid folder handle/)
-    expect(() => handleId(undefined)).toThrow(/invalid folder handle/)
+    expect(() => handleId(null)).toThrow(/フォルダの指定が正しくありません/)
+    expect(() => handleId(undefined)).toThrow(/フォルダの指定が正しくありません/)
   })
 
   it('throws for an object with no id field', () => {
-    expect(() => handleId({ label: 'no id here' })).toThrow(/invalid folder handle/)
+    expect(() => handleId({ label: 'no id here' })).toThrow(/フォルダの指定が正しくありません/)
   })
 
   it('coerces a non-string id field to a string', () => {

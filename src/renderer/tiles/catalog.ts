@@ -1,5 +1,4 @@
-import type { BuiltinTileType, TileInstance, WebTileDefinition } from '@shared/types'
-import type { PluginListItem } from '@shared/apiTypes'
+import type { BuiltinTileType, PluginManifest, TileInstance, WebTileDefinition, Workspace } from '@shared/types'
 
 export interface BuiltinTileInfo {
   title: string
@@ -40,7 +39,7 @@ export function webTile(def: WebTileDefinition): NewTile {
 }
 
 /** A plugin tile: a web page (its own session partition) or an app in a sandboxed iframe (PluginFrame). */
-export function pluginTile(item: PluginListItem, config?: Record<string, unknown>): NewTile {
+export function pluginTile(item: { manifest: PluginManifest }, config?: Record<string, unknown>): NewTile {
   const { manifest } = item
   return {
     kind: 'plugin',
@@ -52,4 +51,13 @@ export function pluginTile(item: PluginListItem, config?: Record<string, unknown
         ? { pluginKind: 'web', pluginId: manifest.id, url: manifest.url, partitionId: `plugin-${manifest.id}`, ...config }
         : { pluginKind: 'app', pluginId: manifest.id, ...config }
   }
+}
+
+/** Every open tile of a plugin, in any workspace (to close them when it's deleted or disabled). */
+export function pluginTileIds(workspaces: Workspace[], pluginId: string): string[] {
+  return workspaces.flatMap((w) =>
+    Object.values(w.tiles)
+      .filter((t) => t.kind === 'plugin' && (t.config as { pluginId?: string } | undefined)?.pluginId === pluginId)
+      .map((t) => t.id)
+  )
 }

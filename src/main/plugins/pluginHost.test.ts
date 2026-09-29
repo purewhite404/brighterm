@@ -73,9 +73,10 @@ describe('PluginHost', () => {
     expect(host.list()).toHaveLength(1)
   })
 
-  it('reports a warning listing the requested permissions', () => {
+  it('returns the requested permissions with the manifest (for the UI to list), not as a warning', () => {
     const result = host.install(appPlugin())
-    expect(result.warnings.some((w) => w.message.includes('storage'))).toBe(true)
+    expect(result.manifest?.permissions).toEqual([{ type: 'storage' }])
+    expect(result.warnings).toEqual([])
   })
 
   it('rejects a plugin with an invalid manifest without writing anything', () => {

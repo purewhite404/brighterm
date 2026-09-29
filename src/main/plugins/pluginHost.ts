@@ -60,9 +60,8 @@ export class PluginHost {
 
   /**
    * Validate and install a parsed bundle. Does NOT ask for user confirmation
-   * — the caller (IPC handler / AI Builder UI) is expected to show
-   * `warnings` (declared permissions, static-analysis notes) and get
-   * explicit approval before calling this, or to call `validateOnly` first.
+   * — the caller (the AI Builder UI) shows the result of `validate` first:
+   * the manifest's permissions, and any errors / warnings.
    */
   install(files: ParsedBundleFile[]): PluginInstallResult {
     const validation = this.validate(files)
@@ -139,15 +138,10 @@ export class PluginHost {
     for (const finding of findUndeclaredDomains(files, declaredDomains)) {
       warnings.push({
         file: finding.file,
-        message: `manifest に宣言されていないドメインへの通信が見つかりました: ${finding.hostname}`
+        message: `manifest.json の network 権限にないサイト "${finding.hostname}" と通信しようとしています（このままでは実行時に止められます）`
       })
     }
-
-    if (manifest.permissions.length > 0) {
-      warnings.push({
-        message: `このプラグインは次の権限を要求します: ${manifest.permissions.map((p: PluginPermission) => p.type).join(', ')}`
-      })
-    }
+    // The permissions themselves are not a warning: the UI lists manifest.permissions for the user.
 
     return { ok: errors.length === 0, manifest, errors, warnings }
   }

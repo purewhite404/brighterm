@@ -128,26 +128,54 @@ describe('PluginHostApiBridge', () => {
       expect(() => bridge.deleteFile('no-folders-del', 'folder-1', 'note.txt')).toThrow(PermissionDeniedError)
     })
 
+    it('gives images etc. a URL (fileUrl) and points readFile users there instead of returning garbage', () => {
+      pluginHost.install(pluginFiles('photo-plugin', [{ type: 'folders' }]))
+      const rootPath = mkdtempSync(join(tmpdir(), 'brighterm-granted-'))
+      mkdirSync(join(rootPath, '2024'))
+      writeFileSync(join(rootPath, '2024', '富士山.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]))
+      seedFolderHandle('photo-plugin', 'folder-1', rootPath)
+
+      expect(bridge.listFiles('photo-plugin', 'folder-1')).toEqual([{ name: '2024', isDirectory: true }])
+      expect(bridge.listFiles('photo-plugin', 'folder-1', '2024')).toEqual([{ name: '富士山.png', isDirectory: false }])
+      expect(bridge.fileUrl('photo-plugin', 'folder-1', '2024/富士山.png')).toBe(
+        `plugin-app://photo-plugin/__brighterm_file__/folder-1/2024/${encodeURIComponent('富士山.png')}`
+      )
+      expect(bridge.resolveFile('photo-plugin', 'folder-1', '2024/富士山.png')).toBe(join(rootPath, '2024', '富士山.png'))
+      expect(() => bridge.readFile('photo-plugin', 'folder-1', '2024/富士山.png')).toThrow('fs.fileUrl(folder, path)')
+
+      expect(() => bridge.fileUrl('photo-plugin', 'folder-1', 'missing.jpg')).toThrow(/ファイルが見つかりません/)
+      expect(() => bridge.fileUrl('photo-plugin', 'folder-1', '../outside.jpg')).toThrow(/選んだフォルダの外/)
+      // What the user's first AI-written Photo Viewer did: readFile(photo.path), with no folder handle.
+      expect(() => bridge.fileUrl('photo-plugin', 'folder-1', undefined)).toThrow(/2つ目の引数/)
+
+      rmSync(rootPath, { recursive: true, force: true })
+    })
+
+    it('rejects fileUrl without the folders permission', () => {
+      pluginHost.install(pluginFiles('no-folders-url', []))
+      expect(() => bridge.fileUrl('no-folders-url', 'folder-1', 'a.jpg')).toThrow(PermissionDeniedError)
+    })
+
     it('rejects a relative path that escapes the granted folder', () => {
       pluginHost.install(pluginFiles('escape-plugin', [{ type: 'folders' }]))
       const rootPath = mkdtempSync(join(tmpdir(), 'brighterm-granted-'))
       seedFolderHandle('escape-plugin', 'folder-1', rootPath)
 
-      expect(() => bridge.readFile('escape-plugin', 'folder-1', '../../etc/passwd')).toThrow(/escapes/)
+      expect(() => bridge.readFile('escape-plugin', 'folder-1', '../../etc/passwd')).toThrow(/選んだフォルダの外/)
 
       rmSync(rootPath, { recursive: true, force: true })
     })
 
     it('throws for an unknown folder handle', () => {
       pluginHost.install(pluginFiles('unknown-handle', [{ type: 'folders' }]))
-      expect(() => bridge.listFiles('unknown-handle', 'no-such-handle')).toThrow(/unknown folder handle/)
+      expect(() => bridge.listFiles('unknown-handle', 'no-such-handle')).toThrow('pickFolder() が返したオブジェクト')
     })
   })
 
   describe('netFetch', () => {
     it('rejects a request to a domain not declared in the manifest', async () => {
       pluginHost.install(pluginFiles('net-plugin', [{ type: 'network', domains: ['api.example.com'] }]))
-      await expect(bridge.netFetch('net-plugin', 'https://evil.example.com/data')).rejects.toThrow(/not permitted/)
+      await expect(bridge.netFetch('net-plugin', 'https://evil.example.com/data')).rejects.toThrow(/evil.example.com.*許可されていません/)
     })
 
     it('allows a request to a declared domain', async () => {
@@ -185,6 +213,6 @@ describe('PluginHostApiBridge', () => {
   })
 
   it('throws when the plugin id is not installed at all', () => {
-    expect(() => bridge.storageGet('ghost-plugin', 'x')).toThrow(/not installed/)
+    expect(() => bridge.storageGet('ghost-plugin', 'x')).toThrow(/インストールされていません/)
   })
 })

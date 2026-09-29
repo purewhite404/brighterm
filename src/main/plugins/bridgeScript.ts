@@ -3,6 +3,8 @@
  * plugin's page. It's pure string generation (easy to unit test) — the
  * runtime behavior is a postMessage RPC to the parent frame, which forwards
  * each call to PluginHostApiBridge over IPC and enforces permissions there.
+ * Uncaught errors in the plugin are reported to the parent frame too, so the
+ * tile can show them and offer a fix request for the AI.
  */
 export function generateBridgeScript(pluginId: string): string {
   return `(() => {
@@ -38,6 +40,19 @@ export function generateBridgeScript(pluginId: string): string {
     else entry.resolve(data.result);
   });
 
+  // Errors the plugin doesn't handle itself -> the tile's error bar.
+  function report(message) {
+    window.parent.postMessage({ __brighterm: true, report: 'error', message: String(message) }, '*');
+  }
+  window.addEventListener('error', (event) => {
+    const where = event.filename ? ' (' + event.filename.split('/').pop() + ':' + event.lineno + ')' : '';
+    report((event.message || 'Error') + where);
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    report(reason && reason.message ? reason.message : reason);
+  });
+
   function call(method, args) {
     const id = nextId++;
     return new Promise((resolve, reject) => {
@@ -55,7 +70,8 @@ export function generateBridgeScript(pluginId: string): string {
     },
     fs: {
       pickFolder: () => call('fs.pickFolder', []),
-      listFiles: (handle) => call('fs.listFiles', [handle]),
+      listFiles: (handle, relativeDir) => call('fs.listFiles', [handle, relativeDir]),
+      fileUrl: (handle, relativePath) => call('fs.fileUrl', [handle, relativePath]),
       readFile: (handle, relativePath) => call('fs.readFile', [handle, relativePath]),
       writeFile: (handle, relativePath, content) => call('fs.writeFile', [handle, relativePath, content]),
       deleteFile: (handle, relativePath) => call('fs.deleteFile', [handle, relativePath])

@@ -1,0 +1,210 @@
+=== file: manifest.json ===
+{
+  "id": "photo-viewer",
+  "name": "Photo Viewer",
+  "version": "1.0.0",
+  "icon": "image",
+  "kind": "app",
+  "entry": "index.html",
+  "permissions": [
+    {
+      "type": "folders"
+    }
+  ],
+  "description": "指定したフォルダの画像を一覧表示し、選択した写真を拡大表示するビューアです。"
+}
+=== file: index.html ===
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Photo Viewer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="app">
+    <header class="toolbar">
+      <h1>Photo Viewer</h1>
+      <button id="pickButton">写真フォルダを選択</button>
+    </header>
+
+    <section id="status" class="status">
+      フォルダを選択してください。
+    </section>
+
+    <section id="gallery" class="gallery"></section>
+
+    <dialog id="viewer">
+      <button id="closeButton" class="close">閉じる</button>
+      <img id="largeImage" alt="selected photo">
+    </dialog>
+  </main>
+
+  <script src="main.js"></script>
+</body>
+</html>
+=== file: main.js ===
+const pickButton = document.getElementById("pickButton");
+const gallery = document.getElementById("gallery");
+const status = document.getElementById("status");
+const viewer = document.getElementById("viewer");
+const largeImage = document.getElementById("largeImage");
+const closeButton = document.getElementById("closeButton");
+
+const imageExtensions = [
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "bmp"
+];
+
+let currentFolder = null;
+
+pickButton.addEventListener("click", async () => {
+  try {
+    currentFolder = await window.brighterm.fs.pickFolder();
+
+    if (!currentFolder) {
+      return;
+    }
+
+    await loadPhotos();
+  } catch (error) {
+    status.textContent = "フォルダを開けませんでした。";
+  }
+});
+
+async function loadPhotos() {
+  gallery.innerHTML = "";
+  status.textContent = "読み込み中...";
+
+  try {
+    const files = await window.brighterm.fs.listFiles(currentFolder);
+    const photos = files.filter(file => {
+      const parts = file.name.toLowerCase().split(".");
+      return parts.length > 1 &&
+        imageExtensions.includes(parts.pop());
+    });
+
+    if (photos.length === 0) {
+      status.textContent = "画像が見つかりませんでした。";
+      return;
+    }
+
+    status.textContent = `${photos.length} 枚の写真`;
+
+    for (const photo of photos) {
+      const data = await window.brighterm.fs.readFile(photo.path);
+      const url = createImageUrl(data);
+
+      const item = document.createElement("button");
+      item.className = "photo-card";
+
+      const image = document.createElement("img");
+      image.src = url;
+      image.alt = photo.name;
+
+      item.appendChild(image);
+      item.addEventListener("click", () => {
+        largeImage.src = url;
+        viewer.showModal();
+      });
+
+      gallery.appendChild(item);
+    }
+  } catch (error) {
+    status.textContent = "写真の読み込みに失敗しました。";
+  }
+}
+
+function createImageUrl(data) {
+  if (typeof data === "string") {
+    return data;
+  }
+
+  const blob = new Blob([data]);
+  return URL.createObjectURL(blob);
+}
+
+closeButton.addEventListener("click", () => {
+  viewer.close();
+});
+=== file: style.css ===
+:root {
+  color-scheme: light dark;
+}
+
+body {
+  margin: 0;
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+  font-family: system-ui, sans-serif;
+}
+
+.app {
+  padding: 16px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0;
+}
+
+button {
+  background: var(--bt-accent);
+  color: var(--bt-text-primary);
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.status {
+  margin: 16px 0;
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.photo-card {
+  padding: 0;
+  overflow: hidden;
+  background: var(--bt-bg-1);
+}
+
+.photo-card img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+}
+
+dialog {
+  border: 0;
+  border-radius: 12px;
+  background: var(--bt-bg-1);
+  padding: 16px;
+}
+
+dialog img {
+  max-width: 80vw;
+  max-height: 80vh;
+  display: block;
+}
+
+.close {
+  margin-bottom: 12px;
+}

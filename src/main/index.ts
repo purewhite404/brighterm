@@ -73,14 +73,14 @@ function boot(): void {
     // __dirname (not app.getAppPath()) so this resolves the same way in dev
     // (out/main/index.cjs) and packaged (app.asar/out/main/index.cjs) builds —
     // see protocol.ts's identical reasoning for packages/sdk.
-    installBundledPlugins(pluginHost, join(__dirname, '../../plugins-builtin'), ['slack'])
+    const bundledPluginIds = installBundledPlugins(pluginHost, join(__dirname, '../../plugins-builtin'), ['slack'])
     const hostApiBridge = new PluginHostApiBridge(
       pluginHost,
       join(userData, 'plugin-data'),
       (card) => send(IPC.hqCardPublished, card),
       (cardId) => send(IPC.hqCardCleared, cardId)
     )
-    registerPluginProtocolHandler(pluginHost)
+    registerPluginProtocolHandler(pluginHost, hostApiBridge)
 
     const safeStorageCrypto = createSafeStorageCrypto()
     const googleConnector = new GoogleConnector(
@@ -110,7 +110,7 @@ function boot(): void {
     registerFilesIpc(fsWatchers, send)
     registerSysmonIpc()
     registerSettingsIpc(etcService)
-    registerPluginsIpc(pluginHost, hostApiBridge, send)
+    registerPluginsIpc(pluginHost, hostApiBridge, send, bundledPluginIds)
     const google = registerGoogleIpc(googleConnector, send)
     registerBuilderIpc({ configStore, secretStore, pluginHost, send })
 

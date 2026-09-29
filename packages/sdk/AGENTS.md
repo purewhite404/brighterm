@@ -80,13 +80,35 @@
 - `index.html` は依存パッケージを一切使わず、`<script src="main.js">` のような
   相対パスの読み込みだけにしてください（外部 CDN からの読み込みは禁止です。
   サンドボックスの CSP が外部スクリプトをブロックします）。
-- `window.brighterm` というグローバルオブジェクトが Host API です。型定義は
-  `host-api.d.ts` を参照してください。主なメソッド:
+- `window.brighterm` というグローバルオブジェクトが Host API です。**関数の正確な
+  引数と戻り値は、この仕様書の後ろに付いている `host-api.d.ts` のとおりにしてくだ
+  さい。**そこにない関数は存在しません。主なもの:
   - `window.brighterm.storage.get/set/remove/keys(...)`
-  - `window.brighterm.fs.pickFolder() / listFiles() / readFile() / writeFile()`
+  - `window.brighterm.fs.pickFolder() / listFiles() / fileUrl() / readFile() / writeFile() / deleteFile()`
   - `window.brighterm.net.fetch(url, init)` — manifest で宣言したドメインのみ
   - `window.brighterm.hq.publishCard({...}) / clearCard(id)`
   - `window.brighterm.notify(title, body)`
+- フォルダ内のファイルの扱い方（`folders` 権限）。`fs.*` の1つ目の引数は、いつも
+  `pickFolder()` が返したオブジェクトそのものです（パス文字列ではありません）。
+  2つ目はそのフォルダからの相対パスです。**画像・動画・音声・PDF は `readFile`
+  では読めません。`fileUrl` で得た URL を `src` に入れて表示してください。**
+
+  ```js
+  async function openFolder() {
+    const folder = await window.brighterm.fs.pickFolder() // キャンセルなら null
+    if (!folder) return
+    await window.brighterm.storage.set('folder', folder)  // 次回もこのフォルダを使う（storage 権限）
+    const entries = await window.brighterm.fs.listFiles(folder) // [{ name, isDirectory }]
+    for (const entry of entries) {
+      if (entry.isDirectory || !/\.(jpe?g|png|gif|webp|bmp|avif)$/i.test(entry.name)) continue
+      const img = document.createElement('img')
+      img.loading = 'lazy'
+      img.src = await window.brighterm.fs.fileUrl(folder, entry.name)
+      gallery.append(img)
+    }
+    const text = await window.brighterm.fs.readFile(folder, 'memo.txt') // テキストファイルだけ
+  }
+  ```
 - デザインは `tokens.css`（同梱）の CSS カスタムプロパティ（`--bt-bg-1`,
   `--bt-text-primary`, `--bt-accent` など）を使ってください。独自の色やフォント
   を決め打ちしないでください。アプリ全体と統一感のある見た目にするためです。
@@ -108,8 +130,8 @@
 
 1. 生成したコードブロックをそのままコピーして、Brighterm の「AI Builder」タイル
    に貼り付けてもらってください。
-2. アプリ側が自動でチェックし、プレビューを見せ、必要な権限を確認してから
-   インストールします。エラーが出た場合は、そのエラーメッセージがそのまま
-   あなたに返されるので、該当ファイルだけを直して同じ形式で出力し直してください。
-   manifest.json 含め全ファイルを毎回まとめて出力してください（差分ではなく
-   全文で構いません）。
+2. アプリ側が自動でチェックし、使う権限をユーザーに見せてからインストールします。
+   チェックで問題が見つかったときや、インストール後に動かしてエラーが出たときは、
+   そのエラーメッセージがあなたに送られてきます。直した全ファイルを、manifest.json
+   も含めて同じ形式でもう一度出力してください（差分ではなく全文）。`id` は変え
+   ないでください。同じ `id` なら上書きでインストールされます。

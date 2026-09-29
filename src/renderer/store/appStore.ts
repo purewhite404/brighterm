@@ -28,6 +28,8 @@ interface AppState {
   /** Add a tile and re-flow the workspace into a grid of roughly 16:9 cells. */
   addTile: (tile: Omit<TileInstance, 'id'>) => string
   closeTile: (tileId: string) => void
+  /** Close tiles in any workspace (each affected workspace re-flows into a grid). */
+  closeTiles: (tileIds: string[]) => void
   /** Shallow-merge into a tile's persisted config (whichever workspace it's in), e.g. a Browser's current URL. */
   updateTileConfig: (tileId: string, patch: Record<string, unknown>) => void
   resizeSplitAt: (path: NodePath, ratio: number) => void
@@ -135,26 +137,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     return id
   },
 
-  closeTile: (tileId) => {
-    const { config } = get()
-    if (!config) return
-    const ws = activeWorkspace(get())
-    if (!ws) return
+  closeTile: (tileId) => get().closeTiles([tileId]),
 
-    const layout = autoGrid(
-      listTileIds(ws.layout).filter((id) => id !== tileId),
-      get().viewportAspect
-    )
-    const tiles = { ...ws.tiles }
-    delete tiles[tileId]
-    const next = updateWorkspace(config, ws.id, (w) => ({ ...w, layout, tiles }))
+  closeTiles: (tileIds) => {
+    const { config, viewportAspect } = get()
+    if (!config || tileIds.length === 0) return
+    const closing = new Set(tileIds)
+    const next: AppConfig = {
+      ...config,
+      workspaces: config.workspaces.map((w) => {
+        if (!Object.keys(w.tiles).some((id) => closing.has(id))) return w
+        const tiles = { ...w.tiles }
+        for (const id of closing) delete tiles[id]
+        const layout = autoGrid(
+          listTileIds(w.layout).filter((id) => !closing.has(id)),
+          viewportAspect
+        )
+        return { ...w, layout, tiles }
+      })
+    }
     set({ config: next })
     persist(next)
 
-    void window.api.tile.close(tileId)
+    for (const tileId of tileIds) void window.api.tile.close(tileId)
     set((state) => {
       const runtime = { ...state.runtime }
-      delete runtime[tileId]
+      for (const tileId of tileIds) delete runtime[tileId]
       return { runtime }
     })
   },

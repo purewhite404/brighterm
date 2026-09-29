@@ -1,6 +1,9 @@
 /* AI Builder tile — see src/renderer/styles/app.css for the shell and shared rules. */
 
 .bt-ai-builder {
+  /* Fill the tile: as a plain flex item it shrank to its content, leaving part of the tile empty. */
+  flex: 1;
+  min-width: 0;
   display: flex;
   height: 100%;
 }
@@ -35,14 +38,23 @@
   color: var(--bt-text-primary);
 }
 
-.bt-ai-builder__row button,
-.bt-ai-builder__panel > button {
+.bt-ai-builder button {
   padding: var(--bt-space-2) var(--bt-space-3);
   border-radius: var(--bt-radius-sm);
   border: 1px solid var(--bt-border-strong);
   background: var(--bt-bg-1);
   color: var(--bt-text-primary);
   cursor: pointer;
+}
+
+.bt-ai-builder button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bt-ai-builder__danger {
+  border-color: var(--bt-danger) !important;
+  color: var(--bt-danger) !important;
 }
 
 .bt-ai-builder__textarea {
@@ -78,3 +90,144 @@
   border-top: 1px solid var(--bt-border);
   padding-top: var(--bt-space-2);
 }
+
+/* The numbered steps (and the other sections of the panel). */
+.bt-ai-builder__step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-2);
+}
+
+.bt-ai-builder__step-title {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+  font-size: var(--bt-font-size-sm);
+  font-weight: 600;
+  color: var(--bt-text-primary);
+}
+
+.bt-ai-builder__step-number {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bt-accent-soft);
+  color: var(--bt-accent-strong);
+  font-size: var(--bt-font-size-xs);
+}
+
+.bt-ai-builder__hint {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-secondary);
+  line-height: 1.5;
+}
+
+/* Step 3: the check result. */
+.bt-ai-builder__result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-2);
+  padding: var(--bt-space-3);
+  border: 1px solid var(--bt-border);
+  border-radius: var(--bt-radius-md);
+  background: var(--bt-bg-1);
+}
+
+.bt-ai-builder__result--error {
+  border-color: var(--bt-danger);
+}
+
+.bt-ai-builder__result-title {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-1);
+  font-size: var(--bt-font-size-sm);
+  font-weight: 600;
+}
+
+.bt-ai-builder__result--error .bt-ai-builder__result-title {
+  color: var(--bt-danger);
+}
+
+.bt-ai-builder__result-title--ok {
+  color: var(--bt-success);
+}
+
+.bt-ai-builder__subtitle {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-muted);
+  margin-top: var(--bt-space-1);
+}
+
+.bt-ai-builder__subtitle--warning {
+  color: var(--bt-warning);
+}
+
+.bt-ai-builder__list {
+  margin: 0;
+  padding-left: 1.2em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--bt-font-size-sm);
+}
+
+.bt-ai-builder__plugin-name {
+  font-size: var(--bt-font-size-sm);
+  font-weight: 600;
+}
+
+/* Installed plugins. */
+.bt-ai-builder__plugin-row {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+  padding: var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-bg-1);
+}
+
+.bt-ai-builder__plugin-row--disabled {
+  opacity: 0.6;
+}
+
+.bt-ai-builder__plugin-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.bt-ai-builder__plugin-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-1);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.bt-ai-builder__plugin-actions button {
+  padding: 3px var(--bt-space-2);
+  font-size: var(--bt-font-size-xs);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* "上級者向け" (the AI kit). */
+.bt-ai-builder__advanced {
+  border-top: 1px solid var(--bt-border);
+  padding-top: var(--bt-space-2);
+}
+
+.bt-ai-builder__advanced > summary {
+  cursor: pointer;
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-secondary);
+}
+
+.bt-ai-builder__advanced > :not(summary) {
+  margin-top: var(--bt-space-2);
+}
+

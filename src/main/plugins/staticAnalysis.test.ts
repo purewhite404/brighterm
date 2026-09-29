@@ -35,7 +35,7 @@ describe('scanFileForForbiddenPatterns', () => {
 
   it('flags an externally-hosted <script> tag', () => {
     const findings = scanFileForForbiddenPatterns('index.html', '<script src="https://evil.cdn/x.js"></script>')
-    expect(findings.some((f) => f.message.includes('external'))).toBe(true)
+    expect(findings.some((f) => f.message.includes('外部のスクリプト'))).toBe(true)
   })
 
   it('finds nothing in ordinary, well-behaved code', () => {

@@ -141,6 +141,8 @@ export interface PluginListItem {
   enabled: boolean
   installedAt: number
   versions: string[]
+  /** Shipped with the app (Notes, Slack) and reinstalled at every startup: can be disabled, not deleted. */
+  bundled?: boolean
 }
 
 // ---------------------------------------------------------------------------

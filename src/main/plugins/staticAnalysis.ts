@@ -14,15 +14,15 @@ export interface StaticFinding {
 }
 
 const FORBIDDEN_PATTERNS: Array<{ pattern: RegExp; message: string }> = [
-  { pattern: /\beval\s*\(/, message: 'eval(...) is not allowed in plugin code' },
-  { pattern: /new\s+Function\s*\(/, message: 'new Function(...) is not allowed in plugin code' },
-  { pattern: /document\.write\s*\(/, message: 'document.write(...) is not allowed in plugin code' },
-  { pattern: /\brequire\s*\(/, message: 'require(...) is not allowed — plugins have no Node.js access' },
-  { pattern: /\bprocess\s*\./, message: 'process.* is not allowed — plugins have no Node.js access' },
-  { pattern: /window\.brighterm\s*=/, message: 'reassigning window.brighterm is not allowed' },
+  { pattern: /\beval\s*\(/, message: 'eval(...) は使えません' },
+  { pattern: /new\s+Function\s*\(/, message: 'new Function(...) は使えません' },
+  { pattern: /document\.write\s*\(/, message: 'document.write(...) は使えません' },
+  { pattern: /\brequire\s*\(/, message: 'require(...) は使えません（プラグインから Node.js は使えません）' },
+  { pattern: /\bprocess\s*\./, message: 'process.* は使えません（プラグインから Node.js は使えません）' },
+  { pattern: /window\.brighterm\s*=/, message: 'window.brighterm を上書きしてはいけません' },
   {
     pattern: /<script[^>]*\ssrc\s*=\s*["']https?:\/\//i,
-    message: 'loading an external <script src="http(s)://..."> is not allowed — bundle the code as a local file instead'
+    message: '外部のスクリプト（<script src="http(s)://...">）は読み込めません。コードはプラグイン内のファイルにしてください'
   }
 ]
 

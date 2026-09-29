@@ -1,0 +1,63 @@
+/* Plugin tiles — see src/renderer/styles/app.css for the shell and shared rules (.bt-plugin-frame). */
+
+.bt-plugin-tile {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Errors of the plugin, above it. */
+.bt-plugin-tile__errors {
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--bt-space-1);
+  padding: var(--bt-space-2) var(--bt-space-3);
+  background: var(--bt-danger-soft);
+  border-bottom: 1px solid var(--bt-danger);
+  color: var(--bt-text-primary);
+  font-size: var(--bt-font-size-sm);
+}
+
+.bt-plugin-tile__errors-head {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+  color: var(--bt-danger);
+}
+
+.bt-plugin-tile__errors-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.bt-plugin-tile__errors-head button {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border-strong);
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+  font-size: var(--bt-font-size-xs);
+  cursor: pointer;
+}
+
+.bt-plugin-tile__errors-list {
+  margin: 0;
+  padding-left: 1.2em;
+  font-family: var(--bt-font-mono);
+  font-size: var(--bt-font-size-xs);
+  word-break: break-word;
+}
+
+.bt-plugin-tile__errors-hint {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-secondary);
+}

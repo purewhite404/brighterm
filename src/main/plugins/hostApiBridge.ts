@@ -4,16 +4,20 @@ import { randomUUID } from 'node:crypto'
 import type { PluginHost } from './pluginHost'
 import type { PluginManifest } from '@sdk/manifest.schema'
 import type { Card } from '@shared/types'
+import { buildPluginFileUrl } from './pluginFileUrl'
 
 /**
  * Implements the `window.brighterm` Host API's actual behavior, on the main
  * process side. Every call is scoped to one plugin id and checked against
  * that plugin's declared manifest permissions before doing anything.
+ *
+ * Error messages are Japanese and say how to fix the call: the plugin tile
+ * shows them to the user, and the fix request hands them to the AI.
  */
 
 export class PermissionDeniedError extends Error {
   constructor(pluginId: string, permission: string) {
-    super(`plugin "${pluginId}" has not declared the "${permission}" permission`)
+    super(`プラグイン "${pluginId}" は manifest.json の permissions に { "type": "${permission}" } を宣言していません`)
   }
 }
 
@@ -33,7 +37,7 @@ export class PluginHostApiBridge {
 
   private manifestOf(pluginId: string): PluginManifest {
     const item = this.pluginHost.getListItem(pluginId)
-    if (!item) throw new Error(`plugin "${pluginId}" is not installed`)
+    if (!item) throw new Error(`プラグイン "${pluginId}" はインストールされていません`)
     return item.manifest
   }
 
@@ -113,17 +117,24 @@ export class PluginHostApiBridge {
   private resolveHandle(pluginId: string, handleId: string): string {
     const folders = this.readFolders(pluginId)
     const entry = folders[handleId]
-    if (!entry) throw new Error(`unknown folder handle "${handleId}"`)
+    if (!entry) {
+      throw new Error(
+        `フォルダの指定が正しくありません（受け取った値: ${handleId}）。1つ目の引数には pickFolder() が返したオブジェクトをそのまま渡してください`
+      )
+    }
     return entry.path
   }
 
   /** Resolves relativePath against the handle's root, rejecting any escape via "..". */
-  private resolveWithinFolder(rootPath: string, relativePath: string): string {
+  private resolveWithinFolder(rootPath: string, relativePath: unknown): string {
+    if (typeof relativePath !== 'string') {
+      throw new Error(`2つ目の引数には、選んだフォルダからの相対パス（例: "photo.jpg"）を文字列で渡してください（受け取った値: ${String(relativePath)}）`)
+    }
     const target = resolve(rootPath, relativePath)
     const rel = relative(rootPath, target)
     const escapes = rel === '' ? false : rel.startsWith('..') || rel.split(/[\\/]/).includes('..')
     if (escapes) {
-      throw new Error('path escapes the granted folder')
+      throw new Error(`選んだフォルダの外にはアクセスできません: ${relativePath}`)
     }
     return target
   }
@@ -159,28 +170,54 @@ export class PluginHostApiBridge {
     return { id, label }
   }
 
-  listFiles(pluginId: string, handleId: string): Array<{ name: string; isDirectory: boolean }> {
+  listFiles(pluginId: string, handleId: string, relativeDir: unknown = ''): Array<{ name: string; isDirectory: boolean }> {
     this.requirePermission(pluginId, 'folders')
-    const root = this.resolveHandle(pluginId, handleId)
-    return readdirSync(root).map((name) => ({
-      name,
-      isDirectory: statSync(join(root, name)).isDirectory()
-    }))
+    const dir = this.resolveWithinFolder(this.resolveHandle(pluginId, handleId), relativeDir ?? '')
+    return readdirSync(dir).map((name) => {
+      let isDirectory = false
+      try {
+        isDirectory = statSync(join(dir, name)).isDirectory()
+      } catch {
+        /* a broken link: list it as a file */
+      }
+      return { name, isDirectory }
+    })
   }
 
-  readFile(pluginId: string, handleId: string, relativePath: string): string {
+  /** The absolute path of an existing file in a granted folder (also what the protocol serves fileUrl()s from). */
+  resolveFile(pluginId: string, handleId: string, relativePath: unknown): string {
     this.requirePermission(pluginId, 'folders')
-    const root = this.resolveHandle(pluginId, handleId)
-    return readFileSync(this.resolveWithinFolder(root, relativePath), 'utf-8')
+    const target = this.resolveWithinFolder(this.resolveHandle(pluginId, handleId), relativePath)
+    if (!existsSync(target) || !statSync(target).isFile()) {
+      throw new Error(`ファイルが見つかりません: ${String(relativePath)}`)
+    }
+    return target
   }
 
-  writeFile(pluginId: string, handleId: string, relativePath: string, content: string): void {
+  /** A URL the plugin can put in <img>/<video>/<audio>/<iframe> src (see pluginFileUrl.ts). */
+  fileUrl(pluginId: string, handleId: string, relativePath: unknown): string {
+    this.resolveFile(pluginId, handleId, relativePath)
+    return buildPluginFileUrl(pluginId, handleId, relativePath as string)
+  }
+
+  readFile(pluginId: string, handleId: string, relativePath: unknown): string {
+    const content = readFileSync(this.resolveFile(pluginId, handleId, relativePath))
+    // NUL bytes near the start = not text (images, video, zip…). Reading those as UTF-8 only yields garbage.
+    if (content.subarray(0, 8000).includes(0)) {
+      throw new Error(
+        `テキストではないファイルは readFile では読めません: ${String(relativePath)}。画像・動画・音声・PDF は fs.fileUrl(folder, path) で URL を受け取り、<img> などの src に入れて表示してください`
+      )
+    }
+    return content.toString('utf-8')
+  }
+
+  writeFile(pluginId: string, handleId: string, relativePath: unknown, content: string): void {
     this.requirePermission(pluginId, 'folders')
     const root = this.resolveHandle(pluginId, handleId)
     writeFileSync(this.resolveWithinFolder(root, relativePath), content, 'utf-8')
   }
 
-  deleteFile(pluginId: string, handleId: string, relativePath: string): void {
+  deleteFile(pluginId: string, handleId: string, relativePath: unknown): void {
     this.requirePermission(pluginId, 'folders')
     const root = this.resolveHandle(pluginId, handleId)
     unlinkSync(this.resolveWithinFolder(root, relativePath))
@@ -199,7 +236,7 @@ export class PluginHostApiBridge {
       .filter((p): p is Extract<typeof p, { type: 'network' }> => p.type === 'network')
       .flatMap((p) => p.domains.map((d) => d.toLowerCase()))
     if (!allowedDomains.includes(hostname)) {
-      throw new Error(`plugin "${pluginId}" is not permitted to reach "${hostname}"`)
+      throw new Error(`"${hostname}" との通信は許可されていません。manifest.json の permissions の network の domains に追加してください`)
     }
     const response = await fetch(url, init)
     const text = await response.text()

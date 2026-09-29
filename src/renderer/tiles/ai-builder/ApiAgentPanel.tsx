@@ -90,7 +90,7 @@ export function ApiAgentPanel(): React.JSX.Element {
   const supported = provider === 'openai' || provider === 'openai-compatible'
 
   return (
-    <div className="bt-ai-builder__panel">
+    <section className="bt-ai-builder__step" aria-label="API モード">
       {!supported && (
         <div className="bt-message bt-message--error">
           「{provider}」はまだ未対応です（OpenAI / OpenAI 互換のみ）。設定で切り替えてください。
@@ -128,6 +128,6 @@ export function ApiAgentPanel(): React.JSX.Element {
           <AgentEventRow key={i} event={e} />
         ))}
       </div>
-    </div>
+    </section>
   )
 }

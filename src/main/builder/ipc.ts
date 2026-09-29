@@ -1,7 +1,8 @@
 import { dialog, ipcMain } from 'electron'
-import { cpSync, mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import hostApiTypes from '@sdk/host-api.d.ts?raw'
 import { IPC } from '@shared/ipc'
 import type { ConfigStore } from '../configStore'
 import type { PluginHost } from '../plugins/pluginHost'
@@ -25,16 +26,34 @@ export function registerBuilderIpc(deps: {
   ipcMain.handle(IPC.builderExportKit, async () => exportAiKit())
 }
 
-/** "AI キットを書き出す": copies the SDK docs/types/templates to a folder the user can hand to any chat AI. */
-async function exportAiKit(): Promise<{ ok: boolean; path?: string }> {
+/**
+ * "AI キットを書き出す": copies the SDK docs/types/templates into a folder, for
+ * building plugins with an AI tool that works on files (Claude Code, Cursor…).
+ */
+async function exportAiKit(): Promise<{ ok: boolean; path?: string; error?: string }> {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
   if (result.canceled || result.filePaths.length === 0) return { ok: false }
 
   const destDir = join(result.filePaths[0], 'brighterm-plugin-kit')
-  // __dirname is out/main (main is bundled into one file), in dev and in app.asar alike.
-  const sdkDir = join(__dirname, '../../packages/sdk')
-  cpSync(sdkDir, destDir, { recursive: true })
-  return { ok: true, path: destDir }
+  try {
+    // __dirname is out/main (main is bundled into one file), in dev and in app.asar alike.
+    copyDir(join(__dirname, '../../packages/sdk'), destDir)
+    // electron-builder leaves *.d.ts files out of the package, so write the Host API types from the bundle.
+    writeFileSync(join(destDir, 'host-api.d.ts'), hostApiTypes)
+    return { ok: true, path: destDir }
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) }
+  }
+}
+
+/** fs.cpSync can't read a folder inside app.asar (ENOENT); readdir/stat/readFile can. */
+function copyDir(from: string, to: string): void {
+  mkdirSync(to, { recursive: true })
+  for (const name of readdirSync(from)) {
+    const source = join(from, name)
+    if (statSync(source).isDirectory()) copyDir(source, join(to, name))
+    else writeFileSync(join(to, name), readFileSync(source))
+  }
 }
 
 async function runAgent(

@@ -1,0 +1,70 @@
+=== file: manifest.json ===
+{
+  "id": "photo-viewer",
+  "name": "Photo Viewer",
+  "version": "1.0.1",
+  "icon": "image",
+  "kind": "app",
+  "entry": "index.html",
+  "permissions": [{ "type": "folders" }, { "type": "storage" }],
+  "description": "指定したフォルダの画像を一覧表示し、選択した写真を拡大表示するビューアです。"
+}
+=== file: index.html ===
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Photo Viewer</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="toolbar">
+    <button id="pickButton">写真フォルダを選択</button>
+    <span id="status">フォルダを選択してください。</span>
+  </header>
+  <section id="gallery" class="gallery"></section>
+  <dialog id="viewer"><img id="largeImage" alt=""></dialog>
+  <script src="main.js"></script>
+</body>
+</html>
+=== file: main.js ===
+const gallery = document.getElementById('gallery')
+const status = document.getElementById('status')
+const viewer = document.getElementById('viewer')
+const largeImage = document.getElementById('largeImage')
+
+async function show(folder) {
+  gallery.innerHTML = ''
+  const entries = await window.brighterm.fs.listFiles(folder)
+  const photos = entries.filter((e) => !e.isDirectory && /\.(jpe?g|png|gif|webp|bmp|avif)$/i.test(e.name))
+  status.textContent = photos.length ? `${folder.label}: ${photos.length} 枚` : '画像が見つかりませんでした。'
+  for (const photo of photos) {
+    const img = document.createElement('img')
+    img.loading = 'lazy'
+    img.alt = photo.name
+    img.src = await window.brighterm.fs.fileUrl(folder, photo.name)
+    img.addEventListener('click', () => {
+      largeImage.src = img.src
+      viewer.showModal()
+    })
+    gallery.append(img)
+  }
+}
+
+document.getElementById('pickButton').addEventListener('click', async () => {
+  const folder = await window.brighterm.fs.pickFolder()
+  if (!folder) return
+  await window.brighterm.storage.set('folder', folder)
+  await show(folder)
+})
+
+viewer.addEventListener('click', () => viewer.close())
+
+window.brighterm.storage.get('folder').then((folder) => folder && show(folder))
+=== file: style.css ===
+body { margin: 0; background: var(--bt-bg-2); color: var(--bt-text-primary); font-family: var(--bt-font-ui); }
+.toolbar { display: flex; gap: var(--bt-space-2); align-items: center; padding: var(--bt-space-2); }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: var(--bt-space-2); padding: var(--bt-space-2); }
+.gallery img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--bt-radius-sm); cursor: zoom-in; }
+dialog img { max-width: 80vw; max-height: 80vh; }

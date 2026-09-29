@@ -11,17 +11,19 @@ import { readDirAsBundleFiles } from './dirBundle'
  * `.btplugin` goes through, just fed from disk instead of a parsed bundle.
  */
 
+/** Returns the ids of the bundled plugins (they come back at every startup, so the UI doesn't offer to delete them). */
 export function installBundledPlugins(
   pluginHost: PluginHost,
   builtinDir: string,
   defaultDisabledIds: string[] = []
-): void {
+): string[] {
+  const installed: string[] = []
   let entries: string[]
   try {
     entries = readdirSync(builtinDir)
   } catch (err) {
     console.error(`[bootstrapBundled] could not read ${builtinDir}:`, err)
-    return
+    return installed
   }
 
   for (const name of entries) {
@@ -39,5 +41,7 @@ export function installBundledPlugins(
     if (!wasAlreadyInstalled && defaultDisabledIds.includes(name)) {
       pluginHost.setEnabled(name, false)
     }
+    if (result.manifest) installed.push(result.manifest.id)
   }
+  return installed
 }

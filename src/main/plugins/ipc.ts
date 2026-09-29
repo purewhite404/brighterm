@@ -9,8 +9,14 @@ import type { PluginHost } from './pluginHost'
 import { pluginAppUrl } from './protocol'
 
 /** Installing / enabling / rolling back plugins, and every `window.brighterm.*` call a plugin makes. */
-export function registerPluginsIpc(pluginHost: PluginHost, hostApiBridge: PluginHostApiBridge, send: Send): void {
-  ipcMain.handle(IPC.pluginsList, () => pluginHost.list())
+export function registerPluginsIpc(
+  pluginHost: PluginHost,
+  hostApiBridge: PluginHostApiBridge,
+  send: Send,
+  /** Bundled plugins (Notes, Slack) are reinstalled at every startup — they can be disabled, not deleted. */
+  bundledIds: string[]
+): void {
+  ipcMain.handle(IPC.pluginsList, () => pluginHost.list().map((item) => ({ ...item, bundled: bundledIds.includes(item.manifest.id) })))
   ipcMain.handle(IPC.pluginsValidateBundle, (_event, rawText: string) => {
     const parsed = parseBundle(rawText)
     if (!parsed.ok) return { ok: false, errors: parsed.errors.map((message) => ({ message })), warnings: [] }
@@ -65,13 +71,15 @@ async function callHostApi(
     case 'fs.pickFolder':
       return hostApiBridge.pickFolder(pluginId)
     case 'fs.listFiles':
-      return hostApiBridge.listFiles(pluginId, handleId(args[0]))
+      return hostApiBridge.listFiles(pluginId, handleId(args[0]), args[1])
+    case 'fs.fileUrl':
+      return hostApiBridge.fileUrl(pluginId, handleId(args[0]), args[1])
     case 'fs.readFile':
-      return hostApiBridge.readFile(pluginId, handleId(args[0]), args[1] as string)
+      return hostApiBridge.readFile(pluginId, handleId(args[0]), args[1])
     case 'fs.writeFile':
-      return hostApiBridge.writeFile(pluginId, handleId(args[0]), args[1] as string, args[2] as string)
+      return hostApiBridge.writeFile(pluginId, handleId(args[0]), args[1], args[2] as string)
     case 'fs.deleteFile':
-      return hostApiBridge.deleteFile(pluginId, handleId(args[0]), args[1] as string)
+      return hostApiBridge.deleteFile(pluginId, handleId(args[0]), args[1])
     case 'net.fetch':
       return hostApiBridge.netFetch(
         pluginId,
@@ -88,6 +96,6 @@ async function callHostApi(
       send(IPC.pluginsRequestOpenTile, args[0] as string)
       return undefined
     default:
-      throw new Error(`unknown host API method: ${method}`)
+      throw new Error(`window.brighterm.${method} という機能はありません（host-api.d.ts にある関数だけが使えます）`)
   }
 }

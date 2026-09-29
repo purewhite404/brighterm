@@ -3,10 +3,11 @@ import { existsSync, readFileSync } from 'node:fs'
 import { relative, resolve, extname } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { PluginHost } from './pluginHost'
+import type { PluginHostApiBridge } from './hostApiBridge'
 import { generateBridgeScript, injectIntoHtml, HOST_API_SCRIPT_PATH, TOKENS_CSS_PATH } from './bridgeScript'
+import { PLUGIN_PROTOCOL, parsePluginFilePath } from './pluginFileUrl'
 
-/** The scheme kind:"app" plugins are served from: plugin-app://<pluginId>/<relative-path>. */
-export const PLUGIN_PROTOCOL = 'plugin-app'
+export { PLUGIN_PROTOCOL }
 
 const TOKENS_CSS_PATH_ON_DISK = resolve(__dirname, '../../packages/sdk/ui/tokens.css')
 
@@ -27,7 +28,7 @@ export function registerPluginSchemeAsPrivileged(): void {
 }
 
 /** Must be called after app.ready — installs the actual request handler. */
-export function registerPluginProtocolHandler(pluginHost: PluginHost): void {
+export function registerPluginProtocolHandler(pluginHost: PluginHost, hostApiBridge: PluginHostApiBridge): void {
   protocol.handle(PLUGIN_PROTOCOL, (request) => {
     const url = new URL(request.url)
     const pluginId = url.hostname
@@ -46,6 +47,17 @@ export function registerPluginProtocolHandler(pluginHost: PluginHost): void {
     const item = pluginHost.getListItem(pluginId)
     if (!item || !item.enabled) {
       return new Response('plugin not found or disabled', { status: 404 })
+    }
+
+    // A file from a folder the user granted this plugin (see fs.fileUrl()).
+    const granted = parsePluginFilePath(url.pathname)
+    if (granted) {
+      try {
+        const path = hostApiBridge.resolveFile(pluginId, granted.handleId, granted.relativePath)
+        return net.fetch(pathToFileURL(path).toString())
+      } catch (err) {
+        return new Response(err instanceof Error ? err.message : String(err), { status: 404 })
+      }
     }
 
     const targetPath = resolve(item.dir, relativePath)

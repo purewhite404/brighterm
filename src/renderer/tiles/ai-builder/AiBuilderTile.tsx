@@ -1,50 +1,38 @@
-import { useState } from 'react'
-import { useAppStore } from '../../store/appStore'
-import { buildAddTilePrompt, buildFixPrompt } from './promptBuilder'
-import { CopyButton } from '../../ui/CopyButton'
+import { useEffect, useState } from 'react'
 import type { PluginInstallResult } from '@shared/apiTypes'
-import { Icon } from '../../ui/Icon'
+import { useAppStore } from '../../store/appStore'
+import { CopyButton } from '../../ui/CopyButton'
+import { pluginTile } from '../catalog'
 import { EmbeddedWebView } from '../shared/EmbeddedWebView'
 import { sidePaneId } from '../shared/subViews'
+import { usePluginList } from '../shared/usePluginList'
+import { AiKitSection } from './AiKitSection'
 import { ApiAgentPanel } from './ApiAgentPanel'
+import { InstalledPlugins } from './InstalledPlugins'
+import { buildAddTilePrompt } from './promptBuilder'
+import { ValidationResult } from './ValidationResult'
 import './ai-builder.css'
 
-function IssueList({ result }: { result: PluginInstallResult }): React.JSX.Element {
+/** How long typing/pasting in step 2 pauses before the code is checked. */
+const CHECK_DELAY_MS = 400
+
+function Step({ n, title, children }: { n: number; title: string; children: React.ReactNode }): React.JSX.Element {
   return (
-    <div className="bt-ai-builder__issues">
-      {result.errors.map((e, i) => (
-        <div key={`e${i}`} className="bt-ai-builder__issue--error">
-          <Icon name="alert" size={13} /> {e.file ? `${e.file}: ` : ''}
-          {e.message}
-        </div>
-      ))}
-      {result.warnings.map((w, i) => (
-        <div key={`w${i}`} className="bt-ai-builder__issue--warning">
-          <Icon name="alert" size={13} /> {w.file ? `${w.file}: ` : ''}
-          {w.message}
-        </div>
-      ))}
-      {result.ok && result.errors.length === 0 && result.warnings.length === 0 && (
-        <div>
-          <Icon name="check" size={13} /> 問題は見つかりませんでした。
-        </div>
-      )}
-    </div>
+    <section className="bt-ai-builder__step" aria-label={`${n}. ${title}`}>
+      <div className="bt-ai-builder__step-title">
+        <span className="bt-ai-builder__step-number">{n}</span>
+        {title}
+      </div>
+      {children}
+    </section>
   )
 }
 
-function ExportKitButton(): React.JSX.Element {
-  const [message, setMessage] = useState<string | null>(null)
-  const run = async (): Promise<void> => {
-    const result = await window.api.builder.exportKit()
-    setMessage(result.ok ? `書き出しました: ${result.path}` : null)
-  }
+function ScopeNote(): React.JSX.Element {
   return (
     <div className="bt-ai-builder__scope-note">
-      <button onClick={run}>
-        <Icon name="copy" size={13} /> AI キットを書き出す（外部のチャット AI に渡す用）
-      </button>
-      {message && <div style={{ marginTop: 4 }}>{message}</div>}
+      対応範囲: メモ・フォト・ダッシュボード・Web サービスの埋め込みなど。ゲームや動画編集、3D 描画は
+      ネイティブアプリのほうが向いているため対象外です（AI が代替案を提案します）。
     </div>
   )
 }
@@ -52,9 +40,12 @@ function ExportKitButton(): React.JSX.Element {
 export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element {
   const config = useAppStore((s) => s.config)
   const updateConfig = useAppStore((s) => s.updateConfig)
+  const addTile = useAppStore((s) => s.addTile)
+  const plugins = usePluginList()
   const [request, setRequest] = useState('')
   const [bundleText, setBundleText] = useState('')
   const [validation, setValidation] = useState<PluginInstallResult | null>(null)
+  const [checking, setChecking] = useState(false)
   const [installResult, setInstallResult] = useState<PluginInstallResult | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -66,38 +57,45 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
     updateConfig({ aiBuilder: { ...config.aiBuilder, mode: next } })
   }
 
-  const runValidate = async (): Promise<void> => {
-    if (!bundleText.trim()) return
-    setBusy(true)
-    try {
-      setValidation(await window.api.plugins.validateBundle(bundleText))
-      setInstallResult(null)
-    } finally {
-      setBusy(false)
+  // Step 3 checks whatever is in step 2, shortly after it stops changing.
+  useEffect(() => {
+    setInstallResult(null)
+    if (!bundleText.trim()) {
+      setValidation(null)
+      setChecking(false)
+      return
     }
-  }
+    let stale = false
+    setChecking(true)
+    const timer = setTimeout(() => {
+      void window.api.plugins.validateBundle(bundleText).then((result) => {
+        if (stale) return
+        setValidation(result)
+        setChecking(false)
+      })
+    }, CHECK_DELAY_MS)
+    return () => {
+      stale = true
+      clearTimeout(timer)
+    }
+  }, [bundleText])
 
   const runInstall = async (): Promise<void> => {
-    if (!bundleText.trim()) return
     setBusy(true)
     try {
       const result = await window.api.plugins.installFromBundle(bundleText)
-      setInstallResult(result)
       setValidation(result)
+      setInstallResult(result)
     } finally {
       setBusy(false)
     }
   }
 
-  const fixPromptText = (): string =>
-    buildFixPrompt((validation?.errors ?? []).map((e) => (e.file ? `${e.file}: ${e.message}` : e.message)))
+  const installed = validation?.manifest ? plugins.find((p) => p.manifest.id === validation.manifest!.id) ?? null : null
 
   const modeToggle = (
     <div className="bt-ai-builder__row" style={{ padding: '8px 8px 0' }}>
-      <button
-        className={mode === 'web-bridge' ? 'bt-btn-primary' : ''}
-        onClick={() => setMode('web-bridge')}
-      >
+      <button className={mode === 'web-bridge' ? 'bt-btn-primary' : ''} onClick={() => setMode('web-bridge')}>
         既定（ChatGPT・API キー不要）
       </button>
       <button className={mode === 'api-agent' ? 'bt-btn-primary' : ''} onClick={() => setMode('api-agent')}>
@@ -110,8 +108,12 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
     return (
       <div className="bt-ai-builder" style={{ flexDirection: 'column' }}>
         {modeToggle}
-        <ApiAgentPanel />
-        <ExportKitButton />
+        <div className="bt-ai-builder__panel">
+          <ApiAgentPanel />
+          <InstalledPlugins plugins={plugins} />
+          <ScopeNote />
+          <AiKitSection />
+        </div>
       </div>
     )
   }
@@ -125,65 +127,63 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
           <EmbeddedWebView viewId={sidePaneId(tileId, 'chat')} source={{ url: chatUrl, partitionId: 'ai-builder-chat' }} />
         </div>
         <div className="bt-ai-builder__panel">
-        <div>
-          <div className="bt-section-title">1. 追加したいものを説明する</div>
-          <div className="bt-ai-builder__row">
-            <input
-              value={request}
-              onChange={(e) => setRequest(e.target.value)}
-              placeholder="例: 写真フォルダを見るビューアを追加して"
+          <Step n={1} title="作りたいものを説明する">
+            <div className="bt-ai-builder__row">
+              <input
+                value={request}
+                onChange={(e) => setRequest(e.target.value)}
+                placeholder="例: 写真フォルダを見るビューアを追加して"
+              />
+              <CopyButton getText={() => buildAddTilePrompt(request)} disabled={!request.trim()} label="依頼文をコピー" />
+            </div>
+            <div className="bt-ai-builder__hint">
+              「依頼文をコピー」を押して、左のチャットに貼り付けて送信してください。依頼文には、Brighterm
+              のプラグインの作り方（仕様書）が入っています。
+            </div>
+          </Step>
+
+          <Step n={2} title="AI の返信を貼り付ける">
+            <div className="bt-ai-builder__hint">
+              返信の中の「=== file: manifest.json ===」から始まるコードブロックを、ブロック右上のコピーボタンでコピーして、ここに貼り付けます。
+            </div>
+            <textarea
+              className="bt-ai-builder__textarea"
+              value={bundleText}
+              onChange={(e) => setBundleText(e.target.value)}
+              placeholder="=== file: manifest.json ===&#10;..."
+              aria-label="AI の返信"
+              spellCheck={false}
             />
-            <CopyButton getText={() => buildAddTilePrompt(request)} disabled={!request.trim()} />
-          </div>
-          <div className="bt-ai-builder__scope-note">
-            コピーした依頼文を左のチャットに貼り付けて送信してください。返ってきたコードブロックは下に貼り付けます。
-          </div>
-        </div>
+          </Step>
 
-        <div>
-          <div className="bt-section-title">2. AI の返信を貼り付ける</div>
-          <textarea
-            className="bt-ai-builder__textarea"
-            value={bundleText}
-            onChange={(e) => setBundleText(e.target.value)}
-            placeholder="=== file: manifest.json ===&#10;..."
-            spellCheck={false}
-          />
-          <div className="bt-ai-builder__row" style={{ marginTop: 8 }}>
-            <button onClick={runValidate} disabled={busy || !bundleText.trim()}>
-              検証
-            </button>
-            <button
-              onClick={runInstall}
-              disabled={busy || !bundleText.trim() || (validation !== null && !validation.ok)}
-              className="bt-btn-primary"
-            >
-              インストール
-            </button>
-          </div>
-        </div>
-
-        {validation && (
-          <div>
-            <div className="bt-section-title">結果</div>
-            <IssueList result={validation} />
-            {validation.errors.length > 0 && (
-              <CopyButton getText={fixPromptText} label="修正依頼をコピー" style={{ marginTop: 8 }} />
+          <Step n={3} title="確認してインストール">
+            {!bundleText.trim() ? (
+              <div className="bt-ai-builder__hint">2 に貼り付けると、ここで自動的にチェックします。</div>
+            ) : checking || !validation ? (
+              <div className="bt-ai-builder__hint">チェックしています…</div>
+            ) : (
+              <>
+                <ValidationResult result={validation} installed={installed} />
+                {validation.ok && !installResult?.ok && (
+                  <div>
+                    <button className="bt-btn-primary" onClick={() => void runInstall()} disabled={busy}>
+                      {installed ? '置き換えてインストール' : 'インストール'}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
-          </div>
-        )}
+            {installResult?.ok && installResult.manifest && (
+              <div className="bt-message" role="status">
+                「{installResult.manifest.name}」をインストールしました。ドックにも追加されています。{' '}
+                <button onClick={() => addTile(pluginTile({ manifest: installResult.manifest! }))}>今すぐ開く</button>
+              </div>
+            )}
+          </Step>
 
-        {installResult?.ok && (
-          <div className="bt-message">
-            「{installResult.manifest?.name}」をインストールしました。ドックから起動できます。
-          </div>
-        )}
-
-          <div className="bt-ai-builder__scope-note">
-            対応範囲: メモ・フォト・ダッシュボード・Web サービスの埋め込みなど。ゲームや動画編集、3D 描画は
-            ネイティブアプリのほうが向いているため対象外です（AI が代替案を提案します）。
-          </div>
-          <ExportKitButton />
+          <InstalledPlugins plugins={plugins} />
+          <ScopeNote />
+          <AiKitSection />
         </div>
       </div>
     </div>

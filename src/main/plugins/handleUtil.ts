@@ -8,5 +8,5 @@
 export function handleId(arg: unknown): string {
   if (typeof arg === 'string') return arg
   if (arg && typeof arg === 'object' && 'id' in arg) return String((arg as { id: unknown }).id)
-  throw new Error('invalid folder handle')
+  throw new Error(`フォルダの指定が正しくありません（受け取った値: ${String(arg)}）。1つ目の引数には pickFolder() が返したオブジェクトをそのまま渡してください`)
 }

@@ -1,12 +1,13 @@
 /**
  * Ambient types for the Host API every kind:"app" plugin gets as
- * `window.brighterm`, injected into its sandboxed iframe. This file ships in
- * the AI plugin kit (see AGENTS.md) purely as documentation/typing for
- * whichever tool writes the plugin — it is not itself imported by the app.
+ * `window.brighterm`, injected into its sandboxed iframe. This file is
+ * appended to the AI Builder's request text and ships in the AI plugin kit
+ * (see AGENTS.md), as the exact reference for whichever AI writes the plugin
+ * — it is not itself imported by the app.
  *
  * The real implementation lives in src/main/plugins/hostApiBridge.ts (main
- * process) and the injected preload the iframe gets
- * (src/renderer/plugins/pluginPreload.ts), talking over postMessage.
+ * process) and the script injected into the iframe
+ * (src/main/plugins/bridgeScript.ts), talking over postMessage.
  */
 
 export interface BrightermStorage {
@@ -23,10 +24,28 @@ export interface BrightermFolderHandle {
   label: string
 }
 
+/**
+ * Files in folders the user picked (needs the "folders" permission).
+ * Every call takes the handle `pickFolder()` returned — pass the object itself,
+ * never a path — plus a path relative to that folder ("photo.jpg", "2024/a.png").
+ */
 export interface BrightermFs {
-  /** Opens the native folder picker; the user chooses what this plugin may read. */
+  /**
+   * Opens the native folder picker; the user chooses what this plugin may read.
+   * Returns null if they cancel. The handle stays valid across restarts: save it
+   * with `storage.set` (needs "storage") to reopen the same folder next time.
+   */
   pickFolder(): Promise<BrightermFolderHandle | null>
-  listFiles(handle: BrightermFolderHandle): Promise<{ name: string; isDirectory: boolean }[]>
+  /** The folder's entries (only names — build paths as `${relativeDir}/${name}`). `relativeDir` defaults to the folder itself. */
+  listFiles(handle: BrightermFolderHandle, relativeDir?: string): Promise<{ name: string; isDirectory: boolean }[]>
+  /**
+   * A URL to show the file with — `<img src>`, `<video src>`, `<audio src>`,
+   * `<iframe src>` (PDF). Use this for anything that isn't text: images,
+   * video, audio, PDF. The browser loads it on demand, so `<img loading="lazy">`
+   * keeps big photo folders fast.
+   */
+  fileUrl(handle: BrightermFolderHandle, relativePath: string): Promise<string>
+  /** Text files only (read as UTF-8). Rejects binary files — use `fileUrl` for those. */
   readFile(handle: BrightermFolderHandle, relativePath: string): Promise<string>
   writeFile(handle: BrightermFolderHandle, relativePath: string, content: string): Promise<void>
   deleteFile(handle: BrightermFolderHandle, relativePath: string): Promise<void>

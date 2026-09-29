@@ -1,4 +1,5 @@
 import agentsDoc from '@sdk/AGENTS.md?raw'
+import hostApiTypes from '@sdk/host-api.d.ts?raw'
 
 /** System prompt for the API-agent mode — the same AGENTS.md the web-bridge mode pastes into a chat, framed as tool-using instructions. */
 export function buildAgentSystemPrompt(): string {
@@ -7,6 +8,10 @@ export function buildAgentSystemPrompt(): string {
     '以下の仕様に従ってください。',
     '',
     agentsDoc.trim(),
+    '',
+    'Host API（window.brighterm）の型定義 host-api.d.ts:',
+    '',
+    hostApiTypes.trim(),
     '',
     '---',
     '',

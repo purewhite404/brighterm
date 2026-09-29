@@ -160,7 +160,7 @@ const api = {
       ipcRenderer.invoke(IPC.builderSetApiKey, provider, apiKey),
     runAgent: (request: string): Promise<{ ok: boolean; error?: string }> =>
       ipcRenderer.invoke(IPC.builderAgentRun, request),
-    exportKit: (): Promise<{ ok: boolean; path?: string }> => ipcRenderer.invoke(IPC.builderExportKit),
+    exportKit: (): Promise<{ ok: boolean; path?: string; error?: string }> => ipcRenderer.invoke(IPC.builderExportKit),
     onAgentEvent: (cb: (event: AgentEvent) => void) => subscribe(IPC.builderAgentEvent, cb)
   },
 
