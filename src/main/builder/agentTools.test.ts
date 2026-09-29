@@ -7,13 +7,16 @@ import { AgentToolRunner } from './agentTools'
 
 describe('AgentToolRunner', () => {
   let pluginsDir: string
+  /** The temp dir the staging dir lives in — dispose() only removes the staging dir itself. */
+  let stagingParent: string
   let stagingDir: string
   let pluginHost: PluginHost
   let runner: AgentToolRunner
 
   beforeEach(() => {
     pluginsDir = mkdtempSync(join(tmpdir(), 'brighterm-agent-plugins-'))
-    stagingDir = join(mkdtempSync(join(tmpdir(), 'brighterm-agent-staging-')), 'run')
+    stagingParent = mkdtempSync(join(tmpdir(), 'brighterm-agent-staging-'))
+    stagingDir = join(stagingParent, 'run')
     pluginHost = new PluginHost(pluginsDir)
     runner = new AgentToolRunner(pluginHost, stagingDir)
   })
@@ -21,6 +24,7 @@ describe('AgentToolRunner', () => {
   afterEach(() => {
     rmSync(pluginsDir, { recursive: true, force: true })
     runner.dispose()
+    rmSync(stagingParent, { recursive: true, force: true })
   })
 
   it('creates the staging directory up front', () => {

@@ -154,6 +154,10 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   that an element exists — an earlier Notes test passed while the editor was off-screen.
 - For screenshots, write a throwaway `tests/e2e/zz-*.spec.ts` that saves PNGs to the
   scratchpad, `Read` the image, then delete the spec.
+- Every temp dir a test makes must be removed even when the test fails (`afterEach`,
+  or `tempDir`/`removeDir` from `tests/e2e/helpers.ts` in a `finally`). A leak in
+  `agentTools.test.ts` once left 276 folders in `%TEMP%`. Don't leave `npm run dev`
+  or Electron running either.
 - For refactors, a throwaway `zz-*` spec with `toHaveScreenshot` (`maxDiffPixels: 0`,
   live numbers masked) taken before the change proves "pixel-identical" after it. The
   `style` option of `toHaveScreenshot` had no effect on the shell page; hide things via
@@ -163,7 +167,7 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   `cmd.exe` on Windows (`app.process().spawnfile`), so spawn a second instance with the
   path from `import electronPath from 'electron'`.
 
-## Status (as of 2026-09-28)
+## Status (as of 2026-09-30)
 
 Working and covered by tests: tiling (auto grid, drag & drop, splitters), Terminal,
 Files, System Monitor (CPU chart, memory meter), Mail (provider choice), Browser
@@ -193,7 +197,8 @@ fix request, reload on reinstall, "AI キット" under "上級者向け" and fix
 (`fs.cpSync` can't read inside `app.asar`; `*.d.ts` isn't packaged, so `host-api.d.ts`
 is written from the bundle). The user's first try is `tests/e2e/fixtures/
 photo-viewer-first-try.btbundle.txt`; the AI Builder now fills its tile (it used to
-shrink to its content).
+shrink to its content). The user then rebuilt their Photo Viewer through the tile's fix
+request and it works; they have made other plugins with it too.
 
 Known gaps / possible next steps:
 - No UI for plugin rollback (the IPC exists) or for the AI Builder's provider/model.

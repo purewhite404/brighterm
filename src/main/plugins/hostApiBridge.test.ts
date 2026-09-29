@@ -31,6 +31,13 @@ describe('PluginHostApiBridge', () => {
   let bridge: PluginHostApiBridge
   let publishedCards: unknown[]
   let clearedCardIds: string[]
+  /** Folders the tests grant, removed after each test even when it fails. */
+  let grantedDirs: string[] = []
+  const grantedDir = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), 'brighterm-granted-'))
+    grantedDirs.push(dir)
+    return dir
+  }
 
   beforeEach(() => {
     pluginsDir = mkdtempSync(join(tmpdir(), 'brighterm-plugins-'))
@@ -49,6 +56,8 @@ describe('PluginHostApiBridge', () => {
   afterEach(() => {
     rmSync(pluginsDir, { recursive: true, force: true })
     rmSync(dataDir, { recursive: true, force: true })
+    for (const dir of grantedDirs) rmSync(dir, { recursive: true, force: true })
+    grantedDirs = []
   })
 
   describe('storage', () => {
@@ -106,7 +115,7 @@ describe('PluginHostApiBridge', () => {
 
     it('lists, reads and writes files within a granted folder', () => {
       pluginHost.install(pluginFiles('file-plugin', [{ type: 'folders' }]))
-      const rootPath = mkdtempSync(join(tmpdir(), 'brighterm-granted-'))
+      const rootPath = grantedDir()
       writeFileSync(join(rootPath, 'note.txt'), 'hello')
       seedFolderHandle('file-plugin', 'folder-1', rootPath)
 
@@ -119,8 +128,6 @@ describe('PluginHostApiBridge', () => {
 
       bridge.deleteFile('file-plugin', 'folder-1', 'note.txt')
       expect(bridge.listFiles('file-plugin', 'folder-1')).toEqual([])
-
-      rmSync(rootPath, { recursive: true, force: true })
     })
 
     it('rejects deleting a file without the folders permission', () => {
@@ -130,7 +137,7 @@ describe('PluginHostApiBridge', () => {
 
     it('gives images etc. a URL (fileUrl) and points readFile users there instead of returning garbage', () => {
       pluginHost.install(pluginFiles('photo-plugin', [{ type: 'folders' }]))
-      const rootPath = mkdtempSync(join(tmpdir(), 'brighterm-granted-'))
+      const rootPath = grantedDir()
       mkdirSync(join(rootPath, '2024'))
       writeFileSync(join(rootPath, '2024', '富士山.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]))
       seedFolderHandle('photo-plugin', 'folder-1', rootPath)
@@ -147,8 +154,6 @@ describe('PluginHostApiBridge', () => {
       expect(() => bridge.fileUrl('photo-plugin', 'folder-1', '../outside.jpg')).toThrow(/選んだフォルダの外/)
       // What the user's first AI-written Photo Viewer did: readFile(photo.path), with no folder handle.
       expect(() => bridge.fileUrl('photo-plugin', 'folder-1', undefined)).toThrow(/2つ目の引数/)
-
-      rmSync(rootPath, { recursive: true, force: true })
     })
 
     it('rejects fileUrl without the folders permission', () => {
@@ -158,12 +163,10 @@ describe('PluginHostApiBridge', () => {
 
     it('rejects a relative path that escapes the granted folder', () => {
       pluginHost.install(pluginFiles('escape-plugin', [{ type: 'folders' }]))
-      const rootPath = mkdtempSync(join(tmpdir(), 'brighterm-granted-'))
+      const rootPath = grantedDir()
       seedFolderHandle('escape-plugin', 'folder-1', rootPath)
 
       expect(() => bridge.readFile('escape-plugin', 'folder-1', '../../etc/passwd')).toThrow(/選んだフォルダの外/)
-
-      rmSync(rootPath, { recursive: true, force: true })
     })
 
     it('throws for an unknown folder handle', () => {
