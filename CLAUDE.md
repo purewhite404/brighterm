@@ -20,6 +20,25 @@ Before calling a change done: typecheck + unit + e2e all green. For UI bugs, add
 e2e test that reproduces the *user's actual scenario* and look at a screenshot
 (see "Verifying UI" below).
 
+### Working from WSL (e.g. Pi Coding Agent) instead of PowerShell
+
+The project was built from PowerShell (Claude Code); `node_modules` holds **Windows**
+binaries. From a WSL shell:
+
+- Run npm / npx / Playwright through Windows: `cmd.exe /c "npm run typecheck"`,
+  `cmd.exe /c "npx playwright test tests/e2e/notes.spec.ts --reporter=line"`. WSL's own
+  Node fails (`Cannot find module @rollup/rollup-linux-x64-gnu`). **Never `npm i` from
+  WSL** — it would replace the Windows binaries (node-pty, electron, rollup).
+  In `cmd.exe /c "…"`, `-g` patterns with spaces don't survive the quoting — use `.`
+  for spaces (`-g subfolder.is.offered`).
+- Use **Windows git** (`cmd.exe /c "git status --short"`, same for add/commit). WSL's
+  git reports files as modified that aren't (line endings / file mode). For
+  `git commit -F`, write the message under `/mnt/c/Users/satoshi/AppData/Local/Temp/`
+  and pass `%TEMP%\msg.txt`.
+- Windows paths for tests: temp dirs are `C:\Users\satoshi\AppData\Local\Temp\…`
+  (`/mnt/c/Users/satoshi/AppData/Local/Temp/` from WSL) — screenshots go there too.
+- The user runs `npm run dev` themselves, from PowerShell.
+
 ## Architecture in one screen
 
 Code is organized **per tile/feature** in every layer (same folder names where possible):
