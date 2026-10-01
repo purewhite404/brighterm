@@ -146,8 +146,14 @@ const api = {
     rollback: (id: string, toVersion: string): Promise<boolean> => ipcRenderer.invoke(IPC.pluginsRollback, id, toVersion),
     uninstall: (id: string): Promise<void> => ipcRenderer.invoke(IPC.pluginsUninstall, id),
     getAppUrl: (id: string): Promise<string> => ipcRenderer.invoke(IPC.pluginsAppUrl, id),
+    /** `path` may be what the user typed (quotes, "~"); rejects (in Japanese) if it isn't an existing folder. */
     grantFolder: (pluginId: string, path: string): Promise<{ id: string; label: string }> =>
       ipcRenderer.invoke(IPC.pluginsGrantFolder, pluginId, path),
+    /** The absolute path behind a folder handle, for the folder bar (null handle → null). */
+    folderBarPath: (pluginId: string, handle: unknown): Promise<string | null> =>
+      ipcRenderer.invoke(IPC.pluginsFolderBarPath, pluginId, handle),
+    /** Subfolders completing a partly typed path (full paths ending in a separator). */
+    suggestFolders: (input: string): Promise<string[]> => ipcRenderer.invoke(IPC.pluginsSuggestFolders, input),
     hostCall: (pluginId: string, method: string, args: unknown[]): Promise<unknown> =>
       ipcRenderer.invoke(IPC.pluginsHostCall, pluginId, method, args),
     onChanged: (cb: () => void) => subscribe(IPC.pluginsChanged, cb),

@@ -5,6 +5,7 @@ import { Icon } from '../../ui/Icon'
 import { buildRuntimeFixPrompt } from '../ai-builder/promptBuilder'
 import { usePluginList } from '../shared/usePluginList'
 import { useTileConfig } from '../shared/useTileConfig'
+import { FolderBar } from './FolderBar'
 import './plugin.css'
 
 /** Set in a plugin tile's config (see FileExplorerTile) to open a file in it. */
@@ -41,6 +42,10 @@ function hostErrorMessage(err: unknown): string {
  * Failed calls and errors the plugin doesn't handle show up in a bar above
  * it, with a fix request to paste into the AI Builder's chat. Installing the
  * plugin again (same id) reloads the frame with the new code.
+ *
+ * A plugin that calls `fs.showFolderBar` gets a folder address bar on top
+ * (FolderBar): the path is shown and typed here, in the shell, and the plugin
+ * only ever receives the granted handle ("folderBarChange" event).
  */
 export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
   const title = useAppStore((s) => selectActiveWorkspace(s)?.tiles[tileId]?.title)
@@ -51,6 +56,8 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
   const [errors, setErrors] = useState<string[]>([])
   const [errorCount, setErrorCount] = useState(0)
   const errorsRef = useRef<string[]>([])
+  /** The folder bar's path ('' = shown, no folder yet); null until the plugin asks for the bar. */
+  const [folderBarPath, setFolderBarPath] = useState<string | null>(null)
 
   const pluginId = config.pluginId
   const openRequest = config.openRequest
@@ -90,6 +97,7 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
       if (cancelled) return
       setSrc(reloads ? `${url}?v=${reloads}` : url)
       setLoaded(false)
+      setFolderBarPath(null)
       clearErrors()
     })
     return () => {
@@ -111,7 +119,14 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
       if (typeof data.id !== 'number' || !data.method) return
 
       try {
-        const result = await window.api.plugins.hostCall(pluginId, data.method, data.args ?? [])
+        let result: unknown
+        if (data.method === 'fs.showFolderBar') {
+          // Answered here: main resolves the path for the bar; the plugin just gets undefined back.
+          const path = await window.api.plugins.folderBarPath(pluginId, data.args?.[0] ?? null)
+          setFolderBarPath(path ?? '')
+        } else {
+          result = await window.api.plugins.hostCall(pluginId, data.method, data.args ?? [])
+        }
         iframeRef.current?.contentWindow?.postMessage({ __brighterm: true, id: data.id, result }, '*')
       } catch (err) {
         const message = hostErrorMessage(err)
@@ -141,6 +156,35 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
     }
   }, [pluginId, loaded, openRequest, updateConfig])
 
+  /** The user picked another folder in the bar: tell the plugin (the handle is granted already). */
+  const switchFolder = async (folder: { id: string; label: string }): Promise<void> => {
+    if (!pluginId) return
+    setFolderBarPath((await window.api.plugins.folderBarPath(pluginId, folder)) ?? '')
+    iframeRef.current?.contentWindow?.postMessage({ __brighterm: true, event: 'folderBarChange', payload: folder }, '*')
+  }
+
+  const submitFolder = async (input: string): Promise<void> => {
+    if (!pluginId) return
+    let folder: { id: string; label: string }
+    try {
+      folder = await window.api.plugins.grantFolder(pluginId, input)
+    } catch (err) {
+      throw new Error(hostErrorMessage(err))
+    }
+    await switchFolder(folder)
+  }
+
+  const browseFolder = async (): Promise<void> => {
+    if (!pluginId) return
+    let folder: { id: string; label: string } | null
+    try {
+      folder = (await window.api.plugins.hostCall(pluginId, 'fs.pickFolder', [])) as { id: string; label: string } | null
+    } catch (err) {
+      throw new Error(hostErrorMessage(err))
+    }
+    if (folder) await switchFolder(folder)
+  }
+
   if (!pluginId) {
     return <div className="bt-tile-body bt-tile-body--centered bt-text-muted">プラグインが指定されていません</div>
   }
@@ -151,6 +195,8 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
   const name = plugin?.manifest.name ?? title ?? pluginId
   return (
     <div className="bt-plugin-tile">
+      {/* On top, like an address bar: an error bar appearing below doesn't move it. */}
+      {folderBarPath !== null && <FolderBar path={folderBarPath} onSubmit={submitFolder} onBrowse={browseFolder} />}
       {errors.length > 0 && (
         <div className="bt-plugin-tile__errors" role="alert" aria-label="プラグインのエラー">
           <div className="bt-plugin-tile__errors-head">

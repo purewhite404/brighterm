@@ -72,7 +72,7 @@ packages/sdk/         … プラグイン開発者(と AI)向けの仕様
   templates/              … 最小サンプル(web / app 各1)
 
 plugins-builtin/      … 同梱プラグイン(起動時に自動インストール)
-  notes/                 … 依存ゼロの軽量メモ帳(kind: app)
+  notes/                 … 依存ゼロの軽量メモ帳(kind: app。保存先はタイル上部のパスバーで指定、一覧は名前/更新日時で並べ替え)
   slack/                 … Slack の Web 埋め込み(既定で無効。kind: web)
 ```
 
@@ -102,6 +102,12 @@ plugins-builtin/      … 同梱プラグイン(起動時に自動インスト�
    `<iframe>` の中で動きます。`window.brighterm` という Host API だけを
    postMessage 経由で提供し、宣言された権限(`storage`/`folders`/`network`/
    `notifications`/`hqCards`)以外にはアクセスできません。
+4. **フォルダのパスバー**: `folders` 権限のプラグインが `fs.showFolderBar()` を呼ぶと、
+   タイル上部にアドレスバーが出ます(Notes はこれで保存先を切り替えます)。
+   パスを入力して Enter、入力中はサブフォルダの候補(↑↓・Tab で補完)、`~` はホーム、
+   エクスプローラーの「パスのコピー」もそのまま貼れます。右端のボタンで従来の
+   フォルダ選択ウィンドウも使えます。バーはアプリ側が描いているので、プラグインには
+   絶対パスは渡らず、許可したフォルダのハンドルだけが届きます。
 
 ### AI Builder の2モード
 - **既定: Web ブリッジモード**(ChatGPT・サインイン/API キー不要)

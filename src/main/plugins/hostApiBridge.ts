@@ -1,10 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, unlinkSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { homedir } from 'node:os'
 import type { PluginHost } from './pluginHost'
 import type { PluginManifest } from '@sdk/manifest.schema'
 import type { Card } from '@shared/types'
 import { buildPluginFileUrl } from './pluginFileUrl'
+import { normalizeFolderInput, samePath } from './folderInput'
+import { handleId as unwrapHandleId } from './handleUtil'
 
 /**
  * Implements the `window.brighterm` Host API's actual behavior, on the main
@@ -155,13 +158,28 @@ export class PluginHostApiBridge {
 
   /**
    * Grants a folder without a picker — used when the user opens a file from
-   * the Files tile in a plugin (e.g. Notes). Only the trusted shell calls this.
+   * the Files tile in a plugin (e.g. Notes) or types a path into the tile's
+   * folder bar. Only the trusted shell calls this; `input` is what the user
+   * typed (quotes, "~" and trailing separators are fine).
    * The same folder always maps to the same handle.
    */
-  grantFolder(pluginId: string, path: string): { id: string; label: string } {
+  grantFolder(pluginId: string, input: string, homeDir: string = homedir()): { id: string; label: string } {
     this.requirePermission(pluginId, 'folders')
+    const path = normalizeFolderInput(String(input ?? ''), homeDir)
+    let isDirectory = false
+    try {
+      isDirectory = statSync(path).isDirectory()
+    } catch {
+      throw new Error(`フォルダが見つかりません: ${path}`)
+    }
+    if (!isDirectory) throw new Error(`ファイルではなくフォルダを指定してください: ${path}`)
+    try {
+      readdirSync(path)
+    } catch {
+      throw new Error(`このフォルダは開けません（アクセスが許可されていません）: ${path}`)
+    }
     const folders = this.readFolders(pluginId)
-    const existing = Object.entries(folders).find(([, entry]) => entry.path === path)
+    const existing = Object.entries(folders).find(([, entry]) => samePath(entry.path, path))
     if (existing) return { id: existing[0], label: existing[1].label }
     const label = path.split(/[\\/]/).pop() || path
     const id = `folder-${randomUUID()}`
@@ -170,17 +188,35 @@ export class PluginHostApiBridge {
     return { id, label }
   }
 
-  listFiles(pluginId: string, handleId: string, relativeDir: unknown = ''): Array<{ name: string; isDirectory: boolean }> {
+  /**
+   * The absolute path of a handle, for the folder bar the shell draws above
+   * the plugin (`fs.showFolderBar`). Never goes to the plugin itself. Null
+   * handle = the bar is shown empty, asking for a folder.
+   */
+  folderBarPath(pluginId: string, handle: unknown): string | null {
+    this.requirePermission(pluginId, 'folders')
+    if (handle === null || handle === undefined) return null
+    return this.resolveHandle(pluginId, unwrapHandleId(handle))
+  }
+
+  listFiles(
+    pluginId: string,
+    handleId: string,
+    relativeDir: unknown = ''
+  ): Array<{ name: string; isDirectory: boolean; modifiedAt: number }> {
     this.requirePermission(pluginId, 'folders')
     const dir = this.resolveWithinFolder(this.resolveHandle(pluginId, handleId), relativeDir ?? '')
     return readdirSync(dir).map((name) => {
       let isDirectory = false
+      let modifiedAt = 0
       try {
-        isDirectory = statSync(join(dir, name)).isDirectory()
+        const stat = statSync(join(dir, name))
+        isDirectory = stat.isDirectory()
+        modifiedAt = Math.round(stat.mtimeMs)
       } catch {
         /* a broken link: list it as a file */
       }
-      return { name, isDirectory }
+      return { name, isDirectory, modifiedAt }
     })
   }
 

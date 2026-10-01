@@ -85,6 +85,7 @@
   さい。**そこにない関数は存在しません。主なもの:
   - `window.brighterm.storage.get/set/remove/keys(...)`
   - `window.brighterm.fs.pickFolder() / listFiles() / fileUrl() / readFile() / writeFile() / deleteFile()`
+  - `window.brighterm.fs.showFolderBar(folder) / onFolderBarChange(cb)` — タイル上部のフォルダのパスバー
   - `window.brighterm.net.fetch(url, init)` — manifest で宣言したドメインのみ
   - `window.brighterm.hq.publishCard({...}) / clearCard(id)`
   - `window.brighterm.notify(title, body)`
@@ -98,7 +99,7 @@
     const folder = await window.brighterm.fs.pickFolder() // キャンセルなら null
     if (!folder) return
     await window.brighterm.storage.set('folder', folder)  // 次回もこのフォルダを使う（storage 権限）
-    const entries = await window.brighterm.fs.listFiles(folder) // [{ name, isDirectory }]
+    const entries = await window.brighterm.fs.listFiles(folder) // [{ name, isDirectory, modifiedAt }]（modifiedAt は更新日時のミリ秒）
     for (const entry of entries) {
       if (entry.isDirectory || !/\.(jpe?g|png|gif|webp|bmp|avif)$/i.test(entry.name)) continue
       const img = document.createElement('img')
@@ -108,6 +109,25 @@
     }
     const text = await window.brighterm.fs.readFile(folder, 'memo.txt') // テキストファイルだけ
   }
+  ```
+- フォルダを切り替えて使うプラグインは、「フォルダを選ぶ」ボタンを自分で作るより、
+  `fs.showFolderBar` を呼ぶのがおすすめです。タイルの上部に Brighterm がパスの入力欄
+  (補完付き)を出し、ユーザーが別のフォルダを入力すると `onFolderBarChange` に許可済みの
+  フォルダが届きます。パスの文字列はプラグインには渡りません(届くのはいつものフォルダ
+  のオブジェクトです)。フォルダが変わったら、そのたびに `showFolderBar` を呼び直して
+  ください。
+
+  ```js
+  async function start() {
+    let folder = await window.brighterm.storage.get('folder')
+    await window.brighterm.fs.showFolderBar(folder) // null なら空欄のバー(「上のバーに入力」と案内する)
+    if (folder) await render(folder)
+  }
+  window.brighterm.fs.onFolderBarChange(async (folder) => {
+    await window.brighterm.storage.set('folder', folder)
+    await window.brighterm.fs.showFolderBar(folder)
+    await render(folder)
+  })
   ```
 - デザインは `tokens.css`（同梱）の CSS カスタムプロパティ（`--bt-bg-1`,
   `--bt-text-primary`, `--bt-accent` など）を使ってください。独自の色やフォント

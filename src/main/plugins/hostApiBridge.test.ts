@@ -1,7 +1,7 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join, sep } from 'node:path'
 import { PluginHost } from './pluginHost'
 import { PluginHostApiBridge, PermissionDeniedError } from './hostApiBridge'
 import type { ParsedBundleFile } from './bundleParser'
@@ -120,7 +120,9 @@ describe('PluginHostApiBridge', () => {
       seedFolderHandle('file-plugin', 'folder-1', rootPath)
 
       const files = bridge.listFiles('file-plugin', 'folder-1')
-      expect(files).toEqual([{ name: 'note.txt', isDirectory: false }])
+      expect(files).toEqual([{ name: 'note.txt', isDirectory: false, modifiedAt: expect.any(Number) }])
+      // When it was last changed (ms since 1970), e.g. for sorting by date.
+      expect(Math.abs(files[0].modifiedAt - Date.now())).toBeLessThan(60_000)
       expect(bridge.readFile('file-plugin', 'folder-1', 'note.txt')).toBe('hello')
 
       bridge.writeFile('file-plugin', 'folder-1', 'note.txt', 'updated')
@@ -142,8 +144,8 @@ describe('PluginHostApiBridge', () => {
       writeFileSync(join(rootPath, '2024', '富士山.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0x0d]))
       seedFolderHandle('photo-plugin', 'folder-1', rootPath)
 
-      expect(bridge.listFiles('photo-plugin', 'folder-1')).toEqual([{ name: '2024', isDirectory: true }])
-      expect(bridge.listFiles('photo-plugin', 'folder-1', '2024')).toEqual([{ name: '富士山.png', isDirectory: false }])
+      expect(bridge.listFiles('photo-plugin', 'folder-1')).toEqual([{ name: '2024', isDirectory: true, modifiedAt: expect.any(Number) }])
+      expect(bridge.listFiles('photo-plugin', 'folder-1', '2024')).toEqual([{ name: '富士山.png', isDirectory: false, modifiedAt: expect.any(Number) }])
       expect(bridge.fileUrl('photo-plugin', 'folder-1', '2024/富士山.png')).toBe(
         `plugin-app://photo-plugin/__brighterm_file__/folder-1/2024/${encodeURIComponent('富士山.png')}`
       )
@@ -167,6 +169,46 @@ describe('PluginHostApiBridge', () => {
       seedFolderHandle('escape-plugin', 'folder-1', rootPath)
 
       expect(() => bridge.readFile('escape-plugin', 'folder-1', '../../etc/passwd')).toThrow(/選んだフォルダの外/)
+    })
+
+    it('grants a typed folder path (the folder bar): same folder → same handle, and its path goes back only to the shell', () => {
+      pluginHost.install(pluginFiles('bar-plugin', [{ type: 'folders' }]))
+      const rootPath = grantedDir()
+      writeFileSync(join(rootPath, 'a.md'), 'A')
+
+      const handle = bridge.grantFolder('bar-plugin', `  "${rootPath}${sep}"  `)
+      expect(handle.label).toBe(basename(rootPath))
+      expect(bridge.listFiles('bar-plugin', handle.id)).toEqual([{ name: 'a.md', isDirectory: false, modifiedAt: expect.any(Number) }])
+      expect(bridge.grantFolder('bar-plugin', rootPath)).toEqual(handle)
+
+      expect(bridge.folderBarPath('bar-plugin', handle)).toBe(rootPath)
+      expect(bridge.folderBarPath('bar-plugin', handle.id)).toBe(rootPath)
+      expect(bridge.folderBarPath('bar-plugin', null)).toBeNull()
+      expect(() => bridge.folderBarPath('bar-plugin', { id: 'folder-nope', label: 'x' })).toThrow('pickFolder() が返したオブジェクト')
+    })
+
+    it('expands ~ in a typed path to the home folder', () => {
+      pluginHost.install(pluginFiles('home-plugin', [{ type: 'folders' }]))
+      const home = grantedDir()
+      mkdirSync(join(home, 'notes'))
+      const handle = bridge.grantFolder('home-plugin', '~/notes', home)
+      expect(bridge.folderBarPath('home-plugin', handle)).toBe(join(home, 'notes'))
+    })
+
+    it('says in Japanese why a typed path cannot be used', () => {
+      pluginHost.install(pluginFiles('bad-path', [{ type: 'folders' }]))
+      const rootPath = grantedDir()
+      writeFileSync(join(rootPath, 'file.txt'), 'x')
+      expect(() => bridge.grantFolder('bad-path', join(rootPath, 'missing'))).toThrow(/フォルダが見つかりません/)
+      expect(() => bridge.grantFolder('bad-path', join(rootPath, 'file.txt'))).toThrow(/ファイルではなくフォルダ/)
+      expect(() => bridge.grantFolder('bad-path', 'relative/dir')).toThrow(/先頭からのパス/)
+      expect(() => bridge.grantFolder('bad-path', '')).toThrow('フォルダのパスを入力してください')
+    })
+
+    it('rejects the folder bar without the folders permission', () => {
+      pluginHost.install(pluginFiles('no-folders-bar', []))
+      expect(() => bridge.folderBarPath('no-folders-bar', null)).toThrow(PermissionDeniedError)
+      expect(() => bridge.grantFolder('no-folders-bar', tmpdir())).toThrow(PermissionDeniedError)
     })
 
     it('throws for an unknown folder handle', () => {

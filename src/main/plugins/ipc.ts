@@ -1,8 +1,10 @@
+import { homedir } from 'node:os'
 import { ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { Card } from '@shared/types'
 import type { Send } from '../window'
 import { parseBundle } from './bundleParser'
+import { suggestFolders } from './folderSuggest'
 import { handleId } from './handleUtil'
 import type { PluginHostApiBridge } from './hostApiBridge'
 import type { PluginHost } from './pluginHost'
@@ -43,9 +45,14 @@ export function registerPluginsIpc(
     send(IPC.pluginsChanged)
   })
   ipcMain.handle(IPC.pluginsAppUrl, (_event, id: string) => pluginAppUrl(id))
+  // The folder bar above a plugin (and Files → "open in Notes"): only the shell calls these, never the plugin.
   ipcMain.handle(IPC.pluginsGrantFolder, (_event, pluginId: string, path: string) =>
     hostApiBridge.grantFolder(pluginId, path)
   )
+  ipcMain.handle(IPC.pluginsFolderBarPath, (_event, pluginId: string, handle: unknown) =>
+    hostApiBridge.folderBarPath(pluginId, handle)
+  )
+  ipcMain.handle(IPC.pluginsSuggestFolders, (_event, input: string) => suggestFolders(String(input ?? ''), homedir()))
   ipcMain.handle(IPC.pluginsHostCall, async (_event, pluginId: string, method: string, args: unknown[]) =>
     callHostApi(hostApiBridge, send, pluginId, method, args)
   )

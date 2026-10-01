@@ -2,16 +2,17 @@
 // Deliberately has no build step and no external libraries: it's meant to
 // double as a worked example of a kind:"app" plugin (see AGENTS.md).
 
+// The notes folder is chosen in the folder bar Brighterm draws above this page
+// (fs.showFolderBar / fs.onFolderBarChange) — no picker window needed.
+
 const pickerScreen = document.getElementById('picker-screen')
 const notesScreen = document.getElementById('notes-screen')
-const pickFolderBtn = document.getElementById('pick-folder')
 const newNoteBtn = document.getElementById('new-note')
 const searchInput = document.getElementById('search')
 const fileListEl = document.getElementById('file-list')
 const titleInput = document.getElementById('title')
 const contentArea = document.getElementById('content')
-const changeFolderBtn = document.getElementById('change-folder')
-const folderLabel = document.getElementById('folder-label')
+const sortSelect = document.getElementById('sort')
 const toggleSidebarBtn = document.getElementById('toggle-sidebar')
 const sidebarBackdrop = document.getElementById('sidebar-backdrop')
 
@@ -52,7 +53,10 @@ function closeOverlaySidebar() {
 }
 
 let folderHandle = null
-let files = [] // { name, isDirectory }
+let files = [] // { name, isDirectory, modifiedAt }, in the chosen order
+// How the list is ordered: "name-asc" | "name-desc" | "date-desc" | "date-asc" (remembered in storage).
+const SORT_ORDERS = ['name-asc', 'name-desc', 'date-desc', 'date-asc']
+let sortOrder = 'name-asc'
 let currentFile = null // file name of the currently open note
 let saveTimer = null
 // A non-.md file opened from the Files tile (a .txt, .log, config file...); listed alongside the notes.
@@ -63,17 +67,22 @@ const isMarkdown = (name) => name.toLowerCase().endsWith('.md')
 const displayName = (name) => (isMarkdown(name) ? name.replace(/\.md$/i, '') : name)
 
 async function init() {
+  const savedOrder = await window.brighterm.storage.get('sortOrder')
+  if (SORT_ORDERS.includes(savedOrder)) sortOrder = savedOrder
+  sortSelect.value = sortOrder
   folderHandle = await window.brighterm.storage.get('folderHandle')
   if (folderHandle) {
     try {
       await refreshFileList()
+      await window.brighterm.fs.showFolderBar(folderHandle)
       showScreen('notes')
       return
     } catch {
-      // The saved handle is stale (folder moved/deleted) — fall back to the picker.
+      // The saved handle is stale (folder moved/deleted) — ask for a folder again.
       folderHandle = null
     }
   }
+  await window.brighterm.fs.showFolderBar(null)
   showScreen('picker')
 }
 
@@ -82,35 +91,73 @@ function showScreen(which) {
   notesScreen.hidden = which !== 'notes'
 }
 
-async function chooseFolder() {
-  const handle = await window.brighterm.fs.pickFolder()
-  if (!handle) return
+/** Saves what's being typed right now, before the note or the folder changes under it. */
+async function flushSave() {
+  if (!saveTimer) return
+  clearTimeout(saveTimer)
+  saveTimer = null
+  await saveCurrent()
+}
+
+/** Makes `handle` the notes folder (remembered for next time) and lists it. */
+async function useFolder(handle) {
+  await flushSave()
   folderHandle = handle
   currentFile = null
   titleInput.value = ''
   contentArea.value = ''
   await window.brighterm.storage.set('folderHandle', handle)
   await refreshFileList()
+  await window.brighterm.fs.showFolderBar(handle)
   showScreen('notes')
-  // Open the first note, or leave the editor ready — typing creates one.
-  if (files.length > 0) await openFile(files[0].name)
-  contentArea.focus()
 }
 
-pickFolderBtn.addEventListener('click', chooseFolder)
-changeFolderBtn.addEventListener('click', chooseFolder)
+// Another folder typed into the folder bar: open its first note, or leave the editor ready — typing creates one.
+window.brighterm.fs.onFolderBarChange(async (handle) => {
+  await ready
+  extraFile = null
+  await useFolder(handle)
+  if (files.length > 0) await openFile(files[0].name)
+  contentArea.focus()
+})
 
 async function refreshFileList() {
   const all = await window.brighterm.fs.listFiles(folderHandle)
-  files = all
-    .filter((f) => !f.isDirectory && (isMarkdown(f.name) || f.name === extraFile))
-    .sort((a, b) => a.name.localeCompare(b.name))
+  files = all.filter((f) => !f.isDirectory && (isMarkdown(f.name) || f.name === extraFile))
+  sortFiles()
+  renderFileList()
+}
+
+/** By the name as shown ("note 2" before "note 10", case ignored), or by when it was last changed. */
+const byName = (a, b) => displayName(a.name).localeCompare(displayName(b.name), 'ja', { numeric: true, sensitivity: 'base' })
+
+function sortFiles() {
+  const [key, direction] = sortOrder.split('-')
+  const sign = direction === 'asc' ? 1 : -1
+  files.sort((a, b) => {
+    if (key === 'date') return sign * ((a.modifiedAt || 0) - (b.modifiedAt || 0)) || byName(a, b)
+    return sign * byName(a, b)
+  })
+}
+
+sortSelect.addEventListener('change', async () => {
+  sortOrder = SORT_ORDERS.includes(sortSelect.value) ? sortSelect.value : 'name-asc'
+  sortFiles()
+  renderFileList()
+  await window.brighterm.storage.set('sortOrder', sortOrder)
+})
+
+/** A note was just saved: by date, it moves to where it belongs now (without listing the folder again). */
+function touched(name) {
+  const file = files.find((f) => f.name === name)
+  if (!file) return
+  file.modifiedAt = Date.now()
+  if (!sortOrder.startsWith('date')) return
+  sortFiles()
   renderFileList()
 }
 
 function renderFileList() {
-  folderLabel.textContent = folderHandle ? folderHandle.label : ''
-  folderLabel.title = folderLabel.textContent
   const query = searchInput.value.trim().toLowerCase()
   const visible = query ? files.filter((f) => f.name.toLowerCase().includes(query)) : files
 
@@ -172,6 +219,7 @@ async function saveCurrent() {
     return
   }
   await window.brighterm.fs.writeFile(folderHandle, currentFile, contentArea.value)
+  touched(currentFile)
 }
 
 async function renameCurrent() {
@@ -199,16 +247,8 @@ const ready = init()
 // "Open in Notes" from the Files tile: switch to that file's folder and open it.
 window.brighterm.onOpenFile(async ({ folder, name }) => {
   await ready
-  if (saveTimer) {
-    clearTimeout(saveTimer)
-    saveTimer = null
-    await saveCurrent()
-  }
-  folderHandle = folder
   extraFile = isMarkdown(name) ? null : name
-  await window.brighterm.storage.set('folderHandle', folder)
-  await refreshFileList()
-  showScreen('notes')
+  await useFolder(folder)
   await openFile(name)
   contentArea.focus()
 })

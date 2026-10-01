@@ -28,14 +28,18 @@ body {
   padding: 24px;
 }
 
-#pick-folder {
-  background: var(--bt-accent);
-  color: var(--bt-text-on-accent);
-  border: none;
-  border-radius: var(--bt-radius-md);
-  padding: 10px 20px;
-  font-size: var(--bt-font-size-md);
-  cursor: pointer;
+#picker-screen p {
+  margin: 0;
+  max-width: 32em;
+}
+
+#picker-screen .hint {
+  color: var(--bt-text-muted);
+  font-size: var(--bt-font-size-sm);
+}
+
+.nowrap {
+  white-space: nowrap;
 }
 
 #notes-screen {
@@ -128,7 +132,23 @@ body {
   flex: 1;
 }
 
-#change-folder,
+#sort {
+  flex: 1.4;
+  min-width: 0;
+  background: var(--bt-bg-1);
+  border: 1px solid var(--bt-border-strong);
+  color: var(--bt-text-primary);
+  border-radius: var(--bt-radius-sm);
+  padding: 5px 4px;
+  font-size: var(--bt-font-size-sm);
+  cursor: pointer;
+}
+
+#sort option {
+  background: var(--bt-bg-1);
+  color: var(--bt-text-primary);
+}
+
 #new-note {
   background: var(--bt-bg-1);
   border: 1px solid var(--bt-border-strong);
@@ -136,14 +156,6 @@ body {
   border-radius: var(--bt-radius-sm);
   padding: 6px 10px;
   cursor: pointer;
-}
-
-#folder-label {
-  font-size: 11px;
-  color: var(--bt-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 #search {

@@ -18,6 +18,12 @@ describe('generateBridgeScript', () => {
       expect(script).toContain(ns)
     }
   })
+
+  it('has the folder bar: a call the tile answers, and its change event', () => {
+    const script = generateBridgeScript('x')
+    expect(script).toContain("showFolderBar: (handle) => call('fs.showFolderBar'")
+    expect(script).toContain("onFolderBarChange: (cb) => onEvent('folderBarChange', cb)")
+  })
 })
 
 describe('injectIntoHtml', () => {

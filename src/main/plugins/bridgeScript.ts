@@ -5,6 +5,9 @@
  * each call to PluginHostApiBridge over IPC and enforces permissions there.
  * Uncaught errors in the plugin are reported to the parent frame too, so the
  * tile can show them and offer a fix request for the AI.
+ *
+ * Host -> plugin events: "openFile" (Files tile) and "folderBarChange" (the
+ * folder bar the tile draws above the plugin, see fs.showFolderBar).
  */
 export function generateBridgeScript(pluginId: string): string {
   return `(() => {
@@ -70,6 +73,9 @@ export function generateBridgeScript(pluginId: string): string {
     },
     fs: {
       pickFolder: () => call('fs.pickFolder', []),
+      // Answered by the tile itself (PluginFrame): it draws the bar; the path never comes back here.
+      showFolderBar: (handle) => call('fs.showFolderBar', [handle === undefined ? null : handle]),
+      onFolderBarChange: (cb) => onEvent('folderBarChange', cb),
       listFiles: (handle, relativeDir) => call('fs.listFiles', [handle, relativeDir]),
       fileUrl: (handle, relativePath) => call('fs.fileUrl', [handle, relativePath]),
       readFile: (handle, relativePath) => call('fs.readFile', [handle, relativePath]),

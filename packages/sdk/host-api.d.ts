@@ -36,8 +36,29 @@ export interface BrightermFs {
    * with `storage.set` (needs "storage") to reopen the same folder next time.
    */
   pickFolder(): Promise<BrightermFolderHandle | null>
-  /** The folder's entries (only names — build paths as `${relativeDir}/${name}`). `relativeDir` defaults to the folder itself. */
-  listFiles(handle: BrightermFolderHandle, relativeDir?: string): Promise<{ name: string; isDirectory: boolean }[]>
+  /**
+   * Shows the folder bar at the top of this plugin's tile, drawn by Brighterm
+   * (not part of your page): it displays `handle`'s full path, and the user can
+   * type or paste another folder there (with completion) instead of using a
+   * picker window. `null` shows it empty, asking for a folder. Call it again
+   * whenever your current folder changes. The path itself is never given to
+   * the plugin. Listen with `onFolderBarChange`.
+   */
+  showFolderBar(handle: BrightermFolderHandle | null): Promise<void>
+  /**
+   * Called when the user switches folders in the folder bar. The handle is
+   * already granted — use it like one from `pickFolder()` (and save it with
+   * `storage.set` to reopen it next time). Returns an unsubscribe function.
+   */
+  onFolderBarChange(cb: (folder: BrightermFolderHandle) => void): () => void
+  /**
+   * The folder's entries (only names — build paths as `${relativeDir}/${name}`). `relativeDir` defaults to the folder itself.
+   * `modifiedAt` = when it was last changed, in ms since 1970 (like `Date.now()`; 0 if unknown) — e.g. to sort by date.
+   */
+  listFiles(
+    handle: BrightermFolderHandle,
+    relativeDir?: string
+  ): Promise<{ name: string; isDirectory: boolean; modifiedAt: number }[]>
   /**
    * A URL to show the file with — `<img src>`, `<video src>`, `<audio src>`,
    * `<iframe src>` (PDF). Use this for anything that isn't text: images,

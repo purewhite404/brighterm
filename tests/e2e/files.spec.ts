@@ -175,6 +175,8 @@ test('Files: plain text opens in Notes for editing; code, HTML and images are pr
     await row(s.window, 'memo.txt').click()
     await expect(notes.locator('#content')).toHaveValue('買い物リスト\n- 牛乳\n', { timeout: 10_000 })
     await expect(notes.locator('#title')).toHaveValue('memo.txt')
+    // Notes' folder bar follows: it now shows the file's folder.
+    await expect(s.window.getByRole('combobox', { name: 'フォルダのパス' })).toHaveValue(root)
     await notes.locator('#content').fill('買い物リスト\n- 牛乳\n- 卵\n')
     await expect.poll(() => readFileSync(join(root, 'memo.txt'), 'utf-8'), { timeout: 5000 }).toBe('買い物リスト\n- 牛乳\n- 卵\n')
 

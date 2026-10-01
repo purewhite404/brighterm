@@ -8,6 +8,125 @@
   flex-direction: column;
 }
 
+/* The folder address bar (FolderBar), on top of plugins that ask for it. */
+.bt-plugin-tile__folderbar {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  border-bottom: 1px solid var(--bt-border);
+  background: var(--bt-bg-1);
+}
+
+.bt-plugin-tile__folderbar-row {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-1);
+  padding: var(--bt-space-1) var(--bt-space-2);
+  color: var(--bt-text-secondary);
+}
+
+.bt-plugin-tile__folderbar-row > svg {
+  flex-shrink: 0;
+}
+
+.bt-plugin-tile__folderbar-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  border: 1px solid var(--bt-border);
+  background: var(--bt-bg-0);
+  color: var(--bt-text-primary);
+  font-family: inherit;
+  font-size: var(--bt-font-size-sm);
+  user-select: text;
+}
+
+.bt-plugin-tile__folderbar-input:focus {
+  outline: none;
+  border-color: var(--bt-accent);
+}
+
+.bt-plugin-tile__folderbar-input[aria-invalid='true'] {
+  border-color: var(--bt-danger);
+}
+
+.bt-plugin-tile__folderbar-browse {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--bt-radius-sm);
+  background: transparent;
+  color: var(--bt-text-secondary);
+  cursor: pointer;
+}
+
+.bt-plugin-tile__folderbar-browse:hover {
+  background: var(--bt-bg-3);
+  color: var(--bt-text-primary);
+}
+
+.bt-plugin-tile__folderbar-error {
+  padding: 0 var(--bt-space-2) var(--bt-space-1);
+  color: var(--bt-danger);
+  font-size: var(--bt-font-size-xs);
+  word-break: break-word;
+}
+
+/* Completions, over the plugin below. */
+.bt-plugin-tile__folderbar-list {
+  position: absolute;
+  top: 100%;
+  left: var(--bt-space-2);
+  right: var(--bt-space-2);
+  max-height: 240px;
+  overflow-y: auto;
+  margin: 2px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid var(--bt-border-strong);
+  border-radius: var(--bt-radius-md);
+  background: var(--bt-bg-1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  font-size: var(--bt-font-size-sm);
+}
+
+.bt-plugin-tile__folderbar-list li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--bt-space-2);
+  padding: 4px var(--bt-space-2);
+  border-radius: var(--bt-radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.bt-plugin-tile__folderbar-list li.bt-plugin-tile__folderbar-option--active {
+  background: var(--bt-accent-soft);
+  color: var(--bt-accent-strong);
+}
+
+.bt-plugin-tile__folderbar-option-name {
+  flex-shrink: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bt-plugin-tile__folderbar-option-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--bt-text-muted);
+  font-size: var(--bt-font-size-xs);
+}
+
 /* Errors of the plugin, above it. */
 .bt-plugin-tile__errors {
   flex-shrink: 0;

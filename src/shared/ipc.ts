@@ -83,6 +83,8 @@ export const IPC = {
   pluginsUninstall: 'plugins:uninstall',
   pluginsAppUrl: 'plugins:app-url',
   pluginsGrantFolder: 'plugins:grant-folder',
+  pluginsFolderBarPath: 'plugins:folder-bar-path',
+  pluginsSuggestFolders: 'plugins:suggest-folders',
   pluginsHostCall: 'plugins:host-call',
   pluginsChanged: 'plugins:changed', // → renderer
   pluginsRequestOpenTile: 'plugins:request-open-tile', // → renderer
