@@ -1,4 +1,4 @@
-import OpenAI from 'openai'
+import type OpenAI from 'openai'
 import type { AgentProvider, AgentRunOptions } from './types'
 
 /**
@@ -14,7 +14,9 @@ import type { AgentProvider, AgentRunOptions } from './types'
 export class OpenAiAgentProvider implements AgentProvider {
   async run(options: AgentRunOptions): Promise<void> {
     const { systemPrompt, userMessage, tools, callTool, onEvent, apiKey, model, baseUrl, maxRounds = 8 } = options
-    const client = new OpenAI({ apiKey, baseURL: baseUrl })
+    // Loaded on first use (~12 MB in the main process); only the API-mode agent needs it.
+    const { default: OpenAIClient } = await import('openai')
+    const client = new OpenAIClient({ apiKey, baseURL: baseUrl })
 
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: systemPrompt },

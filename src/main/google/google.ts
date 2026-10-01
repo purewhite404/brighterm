@@ -1,6 +1,6 @@
 import http from 'node:http'
 import type { AddressInfo } from 'node:net'
-import { google } from 'googleapis'
+import type { Auth, google as GoogleApis } from 'googleapis'
 import { shell } from 'electron'
 import { calendarEventsToCards, gmailMessagesToCards } from './googleCardMapper'
 import type { GoogleCredentialsStore } from './googleCredentialsStore'
@@ -17,6 +17,16 @@ import type { CalendarEvent } from '@shared/apiTypes'
  * exercised against a real Google account in this environment — there was
  * no test Google Cloud project/credentials available to verify against.
  */
+
+/**
+ * googleapis is loaded on first use: requiring it costs the main process ~80 MB and ~0.8 s,
+ * and most sessions never connect Google.
+ */
+let googleApis: Promise<typeof GoogleApis> | null = null
+function loadGoogleApis(): Promise<typeof GoogleApis> {
+  googleApis ??= import('googleapis').then((m) => m.google)
+  return googleApis
+}
 
 const SCOPES = [
   'https://www.googleapis.com/auth/calendar.readonly',
@@ -46,6 +56,7 @@ export class GoogleConnector {
       throw new Error('Google の Client ID と Client Secret を先に入力してください。')
     }
 
+    const google = await loadGoogleApis()
     const server = http.createServer()
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     const port = (server.address() as AddressInfo).port
@@ -108,18 +119,20 @@ export class GoogleConnector {
     this.store.clear()
   }
 
-  private authClient(): InstanceType<typeof google.auth.OAuth2> | null {
+  private async authClient(): Promise<{ google: typeof GoogleApis; auth: Auth.OAuth2Client } | null> {
     const creds = this.store.read()
     if (!creds?.refreshToken) return null
+    const google = await loadGoogleApis()
     const client = new google.auth.OAuth2(creds.clientId, creds.clientSecret)
     client.setCredentials({ refresh_token: creds.refreshToken })
-    return client
+    return { google, auth: client }
   }
 
   /** Events on the primary calendar between two instants, for the built-in Calendar tile. */
   async listEvents(timeMinIso: string, timeMaxIso: string): Promise<CalendarEvent[]> {
-    const auth = this.authClient()
-    if (!auth) return []
+    const client = await this.authClient()
+    if (!client) return []
+    const { google, auth } = client
     const calendar = google.calendar({ version: 'v3', auth })
     const res = await calendar.events.list({
       calendarId: 'primary',
@@ -146,8 +159,9 @@ export class GoogleConnector {
   }
 
   async fetchCards(): Promise<Card[]> {
-    const auth = this.authClient()
-    if (!auth) return []
+    const client = await this.authClient()
+    if (!client) return []
+    const { google, auth } = client
 
     const calendar = google.calendar({ version: 'v3', auth })
     const gmail = google.gmail({ version: 'v1', auth })

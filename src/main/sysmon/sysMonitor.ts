@@ -1,6 +1,12 @@
 import os from 'node:os'
-import si from 'systeminformation'
 import type { SystemSnapshot } from '@shared/apiTypes'
+
+/** Loaded when a System Monitor first asks (~5 MB in the main process). */
+let systeminformation: Promise<typeof import('systeminformation')> | null = null
+function loadSi(): Promise<typeof import('systeminformation')> {
+  systeminformation ??= import('systeminformation').then((m) => (m as { default?: typeof import('systeminformation') }).default ?? m)
+  return systeminformation
+}
 
 /** Total / used memory. On Windows si.mem() spawns PowerShell (for swap), too slow to poll every 0.5 s. */
 async function memoryUsage(): Promise<{ total: number; used: number }> {
@@ -8,13 +14,14 @@ async function memoryUsage(): Promise<{ total: number; used: number }> {
     const total = os.totalmem()
     return { total, used: total - os.freemem() }
   }
-  const mem = await si.mem()
+  const mem = await (await loadSi()).mem()
   return { total: mem.total, used: mem.active }
 }
 
 /** Snapshot of overall system load (+ optionally the heaviest processes), for the SysMon tile. */
 export async function getSystemSnapshot(opts: { processes?: boolean; topN?: number } = {}): Promise<SystemSnapshot> {
   const { processes = true, topN = 15 } = opts
+  const si = await loadSi()
   const [load, mem, procs] = await Promise.all([
     si.currentLoad(),
     memoryUsage(),

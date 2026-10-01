@@ -145,6 +145,11 @@ Code is organized **per tile/feature** in every layer (same folder names where p
 - **PowerShell 7 from the Store/winget** is only an app execution alias
   (`%LOCALAPPDATA%\Microsoft\WindowsApps\pwsh.exe`); `existsSync` says false for it,
   `lstat` works, and node-pty spawns it fine — see `findPwsh7()`.
+- **Heavy main-process deps load on first use** (`import()`): `googleapis` alone cost +80 MB
+  and +0.8 s at startup (measured 2026-10-01: whole app ~405 → ~340 MB, launch 1.3 → 0.56 s),
+  `openai` +12 MB, `systeminformation` +5 MB. Don't import them statically again. (The shell
+  page's JS heap is only ~5 MB, so splitting the renderer bundle wouldn't buy much; turning
+  spellcheck off saved only ~3 MB per web view, so it stays on; idle CPU is ~0 %.)
 - **si.mem() on Windows spawns PowerShell** — too slow for the 0.5 s SysMon poll;
   `sysMonitor.ts` uses `os.totalmem/freemem` there. `si.processes()` is polled every 3 s only.
 - **Windows file attributes** (hidden/system/readonly) come from one `cmd /u /c dir /a:X /b`
