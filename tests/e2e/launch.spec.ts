@@ -25,6 +25,20 @@ test('opens the window, shows the dock, and can add a Terminal tile', async () =
   }
 })
 
+test('under test the window opens without taking the keyboard focus from the user’s other windows', async () => {
+  const s = await launch()
+  try {
+    await expect(s.window.locator('.bt-dock')).toBeVisible()
+    const state = await s.app.evaluate(({ BaseWindow }) => {
+      const [win] = BaseWindow.getAllWindows()
+      return { visible: win.isVisible(), focused: win.isFocused() }
+    })
+    expect(state).toEqual({ visible: true, focused: false })
+  } finally {
+    await s.cleanup()
+  }
+})
+
 test('a second launch exits without touching the running instance’s data', async () => {
   const userDataDir = tempDir()
   const s = await launchIn(userDataDir)

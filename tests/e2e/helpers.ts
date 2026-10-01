@@ -9,6 +9,10 @@ import { fileURLToPath } from 'node:url'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 export const MAIN_ENTRY = resolve(__dirname, '../../out/main/index.cjs')
 
+// Every app a test starts (inherits the env) shows its window without taking the focus: the user keeps working
+// while tests run, and their typing must neither land in a test (it did: "最初のメモuru") nor be lost.
+process.env.BRIGHTERM_BACKGROUND = '1'
+
 export interface Session {
   app: ElectronApplication
   window: Page

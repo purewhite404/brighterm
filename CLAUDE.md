@@ -77,6 +77,14 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   <handle>/<path>`, served by `protocol.ts` after `hostApiBridge.resolveFile` checks
   (`pluginFileUrl.ts`). Host API / validation errors are Japanese and say how to fix
   the call — the tile shows them and the fix request passes them to the AI.
+- Folder bar: a plugin calling `fs.showFolderBar(handle|null)` gets an address bar on top
+  of its tile (`tiles/plugin/FolderBar.tsx`), drawn by the shell — `PluginFrame` answers
+  that call itself (never forwarded to `hostCall`), asks main for the path
+  (`folderBarPath`), and on Enter calls `grantFolder` (which normalizes quotes/`~`/trailing
+  separators and checks it's a readable folder — `folderInput.ts`) and posts a
+  `folderBarChange` event with the handle. The path never reaches the plugin.
+  Completions come from `folderSuggest.ts` (names only — the Files `listDir` is too slow
+  per keystroke). Notes uses it instead of a "フォルダ変更" button.
 - AI Builder (web-bridge): steps 1-3, step 2 is checked automatically (debounced);
   `ValidationResult` lists the manifest's permissions as plain-words "features", not
   warnings. `PluginFrame` shows failed host calls + uncaught plugin errors (reported by
@@ -146,6 +154,10 @@ Code is organized **per tile/feature** in every layer (same folder names where p
 - E2E specs are one per tile (`tests/e2e/<tile>.spec.ts`) over `tests/e2e/helpers.ts`
   (`launch`, `launchIn` for restart tests, `seedWorkspace`, `dock`, `mockFolderPicker`,
   `webViewUrls`, `startSite`).
+- E2E windows never take the focus: `helpers.ts` sets `BRIGHTERM_BACKGROUND=1`, so `window.ts`
+  uses `showInactive()` (and `focusMainWindow` does nothing). The user works while tests run —
+  before this their typing landed in tests ("最初のメモuru") and stole the bar's focus.
+  While iterating run only the affected specs; the whole suite once at the end.
 - E2E launches with `--user-data-dir=<tmp>` and **`colorScheme: null`** — Playwright
   otherwise emulates `prefers-color-scheme: light` on every page.
 - Replace native dialogs in tests via `app.evaluate(({dialog}) => …)`.
@@ -200,7 +212,14 @@ photo-viewer-first-try.btbundle.txt`; the AI Builder now fills its tile (it used
 shrink to its content). The user then rebuilt their Photo Viewer through the tile's fix
 request and it works; they have made other plugins with it too.
 
+Then (2026-10-01) Notes' folder is changed in a path bar on top of the tile (typed/pasted
+path, subfolder completion, the native picker as a side button) instead of a button that
+opened Explorer — as the generic `fs.showFolderBar` Host API (see "Folder bar" above).
+Notes' list sorts by name (A→Z / Z→A, numeric-aware) or modified date (新しい順 / 古い順),
+remembered in storage; for that `fs.listFiles` entries now carry `modifiedAt` (ms).
+
 Known gaps / possible next steps:
+- Folder bar: no breadcrumb (clickable segments to go up) yet.
 - No UI for plugin rollback (the IPC exists) or for the AI Builder's provider/model.
 - The AI Builder ChatGPT pane overflowing on paste is believed to be ChatGPT's own
   layout (our view bounds don't change); unverifiable here (Cloudflare).

@@ -59,7 +59,8 @@ export function createMainWindow(): void {
     mainWindow = null
   })
   // BaseWindow has no 'ready-to-show' (that's BrowserWindow-only); show once the shell has painted.
-  shellView.webContents.once('did-finish-load', () => mainWindow?.show())
+  // E2E runs (BRIGHTERM_BACKGROUND=1) show it without taking the keyboard from whatever the user is typing in.
+  shellView.webContents.once('did-finish-load', () => (inBackground() ? mainWindow?.showInactive() : mainWindow?.show()))
 
   // Any link a tile or the shell wants to open externally goes to the OS browser.
   shellView.webContents.setWindowOpenHandler(({ url }) => {
@@ -74,9 +75,12 @@ function resizeShellView(): void {
   shellView.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height })
 }
 
+/** Set by tests/e2e/helpers.ts: the app must never grab the focus from the user's other windows. */
+const inBackground = (): boolean => process.env.BRIGHTERM_BACKGROUND === '1'
+
 /** A second launch lands here (see the single-instance lock in index.ts). */
 export function focusMainWindow(): void {
-  if (mainWindow) {
+  if (mainWindow && !inBackground()) {
     if (mainWindow.isMinimized()) mainWindow.restore()
     mainWindow.focus()
   }
