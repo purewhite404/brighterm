@@ -5,7 +5,7 @@ import { ConfigStore } from './configStore'
 import { createSafeStorageCrypto } from './cryptoAdapter'
 import { SecretStore } from './secretStore'
 import { applyWebTheme, registerAppIpc } from './appIpc'
-import { createMainWindow, focusMainWindow, getMainWindow, pluginFramePids, send, shellProcessId } from './window'
+import { createMainWindow, focusMainWindow, getMainWindow, inBackground, pluginFramePids, send, shellProcessId } from './window'
 import { ViewManager } from './views/viewManager'
 import { registerViewsIpc } from './views/ipc'
 import { startMemoryLoop } from './views/memoryLoop'
@@ -62,6 +62,11 @@ function boot(): void {
     // dark theme of their own. Set through Blink's settings directly — the
     // WebContentsForceDark feature flag alone had no effect in this Electron.
     app.commandLine.appendSwitch('blink-settings', 'forceDarkModeEnabled=true')
+  }
+  if (inBackground()) {
+    // E2E: the window sits off screen (window.ts). Without this, Chromium on Windows counts it as
+    // occluded and marks every page hidden: no painting, no rAF, and the app's own pause-on-hidden.
+    app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
   }
 
   const fsWatchers = new FsWatchRegistry()

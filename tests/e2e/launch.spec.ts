@@ -25,15 +25,25 @@ test('opens the window, shows the dock, and can add a Terminal tile', async () =
   }
 })
 
-test('under test the window opens without taking the keyboard focus from the user’s other windows', async () => {
+test('under test the window opens off screen, without the focus, and still paints', async () => {
   const s = await launch()
   try {
     await expect(s.window.locator('.bt-dock')).toBeVisible()
-    const state = await s.app.evaluate(({ BaseWindow }) => {
+    const state = await s.app.evaluate(({ BaseWindow, screen }) => {
       const [win] = BaseWindow.getAllWindows()
-      return { visible: win.isVisible(), focused: win.isFocused() }
+      const b = win.getBounds()
+      const overlapsADisplay = screen
+        .getAllDisplays()
+        .some(({ bounds: d }) => b.x < d.x + d.width && d.x < b.x + b.width && b.y < d.y + d.height && d.y < b.y + b.height)
+      return { visible: win.isVisible(), focused: win.isFocused(), overlapsADisplay }
     })
-    expect(state).toEqual({ visible: true, focused: false })
+    expect(state).toEqual({ visible: true, focused: false, overlapsADisplay: false })
+    // Off screen must not mean occluded (index.ts turns that check off): the shell still paints.
+    const shot = await s.app.evaluate(async ({ BaseWindow }) => {
+      const shell = BaseWindow.getAllWindows()[0].contentView.children[0] as Electron.WebContentsView
+      return shell.webContents.capturePage().then((image) => image.isEmpty())
+    })
+    expect(shot).toBe(false)
   } finally {
     await s.cleanup()
   }

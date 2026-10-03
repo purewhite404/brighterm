@@ -16,9 +16,18 @@ Talk to the user in Japanese.
 | `npm run test:e2e` | builds, then Playwright drives the real Electron app (`tests/e2e/`) |
 | `npx electron-builder --dir --win` | quick packaging smoke test (output in `release/`, gitignored) |
 
-Before calling a change done: typecheck + unit + e2e all green. For UI bugs, add an
-e2e test that reproduces the *user's actual scenario* and look at a screenshot
-(see "Verifying UI" below).
+What to run depends on the change (the user's choice, 2026-10-03 — the whole e2e suite
+launches Electron ~70 times: 64 tests in ~2.3 min; a launch + quit is ≤0.8 s of that):
+
+| change | run |
+|---|---|
+| comments / docs only | nothing |
+| logic (main, shared, pure helpers) | typecheck + unit |
+| UI / a tile | typecheck + unit + **that tile's** e2e spec(s) |
+| before a commit, at the end of a batch of work, or when asked | typecheck + unit + **whole** e2e |
+
+For UI bugs, add an e2e test that reproduces the *user's actual scenario* and look at a
+screenshot (see "Verifying UI" below).
 
 ### Working from WSL (e.g. Pi Coding Agent) instead of PowerShell
 
@@ -259,9 +268,16 @@ Code is organized **per tile/feature** in every layer (same folder names where p
 - E2E specs are one per tile (`tests/e2e/<tile>.spec.ts`) over `tests/e2e/helpers.ts`
   (`launch`, `launchIn` for restart tests, `seedWorkspace`, `dock`, `mockFolderPicker`,
   `webViewUrls`, `startSite`).
-- E2E windows never take the focus: `helpers.ts` sets `BRIGHTERM_BACKGROUND=1`, so `window.ts`
-  uses `showInactive()` (and `focusMainWindow` does nothing). The user works while tests run —
-  before this their typing landed in tests ("最初のメモuru") and stole the bar's focus.
+- E2E windows never take the focus **or cover the user's windows**: `helpers.ts` sets
+  `BRIGHTERM_BACKGROUND=1`, so `window.ts` opens the window past the right edge of every display
+  with `showInactive()` (and `focusMainWindow` does nothing). The user works while tests run —
+  before this their typing landed in tests ("最初のメモuru"), and `showInactive()` alone still
+  put each new window in front. Off screen needs `--disable-features=CalculateNativeWinOcclusion`
+  (`index.ts`, test mode only): without it Chromium on Windows marks an off-screen or fully covered
+  window's pages `hidden` — 0 rAF, and `capturePage()` never resolves (checked with a bare Electron
+  script, 2026-10-03; under Playwright the page still *reports* visible, so a spec can't show it).
+  Playwright's input and screenshots go through CDP, not the screen. In tests, un-minimize with
+  `showInactive()`, never `restore()` — that activates the window and takes the focus.
   While iterating run only the affected specs; the whole suite once at the end.
 - E2E launches with `--user-data-dir=<tmp>` and **`colorScheme: null`** — Playwright
   otherwise emulates `prefers-color-scheme: light` on every page.

@@ -76,7 +76,8 @@ test('Minimized: no memory reports are sent; they come back with the window', as
     await s.app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].minimize())
     await expect.poll(() => s.app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].isMinimized())).toBe(true)
     expect(await countFor(1600)).toBe(0)
-    await s.app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].restore())
+    // Not restore(): on Windows that also activates the window and takes the focus from the user.
+    await s.app.evaluate(({ BaseWindow }) => BaseWindow.getAllWindows()[0].showInactive())
     expect(await countFor(1600)).toBeGreaterThanOrEqual(2)
   } finally {
     await s.cleanup()

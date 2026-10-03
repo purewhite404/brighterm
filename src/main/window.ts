@@ -1,4 +1,4 @@
-import { BaseWindow, WebContentsView, shell } from 'electron'
+import { BaseWindow, WebContentsView, screen, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from './utils/env'
 import { perfMark } from './perf'
@@ -42,6 +42,7 @@ export function createMainWindow(): void {
   mainWindow = new BaseWindow({
     width: 1400,
     height: 900,
+    ...(inBackground() ? offScreenPosition() : {}),
     minWidth: 800,
     minHeight: 600,
     show: false,
@@ -92,8 +93,18 @@ function resizeShellView(): void {
   shellView.setBounds({ x: 0, y: 0, width: bounds.width, height: bounds.height })
 }
 
-/** Set by tests/e2e/helpers.ts: the app must never grab the focus from the user's other windows. */
-const inBackground = (): boolean => process.env.BRIGHTERM_BACKGROUND === '1'
+/**
+ * Set by tests/e2e/helpers.ts: the app must neither take the focus from the user's other windows nor
+ * cover them. The window opens past the right edge of every display; index.ts turns Chromium's
+ * occlusion check off in this mode so the page still counts as visible and keeps painting
+ * (Playwright's input and screenshots go through the DevTools protocol, not the screen).
+ */
+export const inBackground = (): boolean => process.env.BRIGHTERM_BACKGROUND === '1'
+
+function offScreenPosition(): { x: number; y: number } {
+  const right = Math.max(...screen.getAllDisplays().map((d) => d.bounds.x + d.bounds.width))
+  return { x: right + 100, y: 0 }
+}
 
 /** A second launch lands here (see the single-instance lock in index.ts). */
 export function focusMainWindow(): void {
