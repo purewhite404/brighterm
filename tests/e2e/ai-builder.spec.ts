@@ -26,6 +26,8 @@ function photoFolder(): string {
 const step3 = (w: Page) => w.getByRole('region', { name: '3. 確認してインストール' })
 const paste = (w: Page, bundle: string) => w.getByLabel('AI の返信', { exact: true }).fill(bundle)
 const clipboard = (app: ElectronApplication) => app.evaluate(({ clipboard }) => clipboard.readText())
+/** Uses the OS clipboard: playwright.config.ts runs these one at a time. */
+const CLIPBOARD = { tag: '@clipboard' }
 
 test('AI Builder switches back from API mode to the default mode', async () => {
   const s = await launch()
@@ -41,7 +43,7 @@ test('AI Builder switches back from API mode to the default mode', async () => {
   }
 })
 
-test('AI Builder: copying the prompt says "コピーしました" and puts the prompt on the clipboard', async () => {
+test('AI Builder: copying the prompt says "コピーしました" and puts the prompt on the clipboard', CLIPBOARD, async () => {
   const s = await launch()
   try {
     await dock(s.window, 'AI Builder').click()
@@ -59,7 +61,7 @@ test('AI Builder: copying the prompt says "コピーしました" and puts the p
   }
 })
 
-test('AI Builder: pasting the prompt into the chat does not change the chat pane size', async () => {
+test('AI Builder: pasting the prompt into the chat does not change the chat pane size', CLIPBOARD, async () => {
   const site = await startSite()
   const s = await launch({
     aiBuilder: { mode: 'web-bridge', webBridgeUrl: `${site.origin}/chat`, apiProvider: 'openai', apiModel: 'gpt-4.1' }
@@ -100,7 +102,7 @@ test('AI Builder: pasting the prompt into the chat does not change the chat pane
   }
 })
 
-test('AI Builder: the check explains what is wrong in Japanese and offers a fix request instead of an install button', async () => {
+test('AI Builder: the check explains what is wrong in Japanese and offers a fix request instead of an install button', CLIPBOARD, async () => {
   const s = await launch()
   try {
     await dock(s.window, 'AI Builder').click()
@@ -118,7 +120,7 @@ test('AI Builder: the check explains what is wrong in Japanese and offers a fix 
   }
 })
 
-test('AI Builder: the user’s first Photo Viewer says in its tile why photos fail; the fixed one replaces it and shows them', async () => {
+test('AI Builder: the user’s first Photo Viewer says in its tile why photos fail; the fixed one replaces it and shows them', CLIPBOARD, async () => {
   const photos = photoFolder()
   const s = await launch()
   try {

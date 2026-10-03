@@ -17,7 +17,8 @@ Talk to the user in Japanese.
 | `npx electron-builder --dir --win` | quick packaging smoke test (output in `release/`, gitignored) |
 
 What to run depends on the change (the user's choice, 2026-10-03 — the whole e2e suite
-launches Electron ~70 times: 64 tests in ~2.3 min; a launch + quit is ≤0.8 s of that):
+launches Electron ~70 times: 64 tests in ~55 s with 4 workers, ~2.3 min one at a time; a launch +
+quit is ≤0.8 s per test, so keeping one app running wouldn't buy much):
 
 | change | run |
 |---|---|
@@ -279,6 +280,14 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   Playwright's input and screenshots go through CDP, not the screen. In tests, un-minimize with
   `showInactive()`, never `restore()` — that activates the window and takes the focus.
   While iterating run only the affected specs; the whole suite once at the end.
+- **E2E runs in parallel** (`playwright.config.ts`: 4 workers, `fullyParallel`): every test launches
+  its own app with its own user-data dir, off screen. A test that uses the **OS clipboard** (shared
+  by all apps) must be tagged `{ tag: '@clipboard' }` — that project runs them one at a time.
+  Anything else machine-wide (a fixed path, a fixed port) needs the same treatment. 6 or 8 workers
+  were no faster (~51-53 s; launches compete for CPU). `perf.spec.ts` keeps its tests in order
+  (`describe.configure`) and should be run alone. Seen twice on 2026-10-03, then not in 160 runs:
+  `files.spec` "PDF / audio previews" with the PDF view's capture all black for 10 s (also with
+  1 worker) — cause unknown; if it comes back, log the view's `capturePage` size/visibility.
 - E2E launches with `--user-data-dir=<tmp>` and **`colorScheme: null`** — Playwright
   otherwise emulates `prefers-color-scheme: light` on every page.
 - Replace native dialogs in tests via `app.evaluate(({dialog}) => …)`.

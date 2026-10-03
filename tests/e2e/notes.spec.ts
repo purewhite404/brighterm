@@ -392,7 +392,8 @@ async function keepingClipboard(app: ElectronApplication, body: () => Promise<vo
   }
 }
 
-test('Notes menu: copy / cut / paste, also into another folder; copy path', async () => {
+// @clipboard: uses the OS clipboard, so playwright.config.ts runs it apart from the other clipboard tests.
+test('Notes menu: copy / cut / paste, also into another folder; copy path', { tag: '@clipboard' }, async () => {
   const one = tempDir('brighterm-notes-1-')
   const two = tempDir('brighterm-notes-2-')
   writeFileSync(join(one, 'a.md'), 'note A')

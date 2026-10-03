@@ -12,8 +12,11 @@ import { launchIn, removeDir, seedWorkspace, startSite, tempDir } from './helper
  * (Chromium trace) — see perf.ts.
  */
 test.skip(process.env.BRIGHTERM_PERF_SPEC !== '1', 'measurement only: set BRIGHTERM_PERF_SPEC=1')
+// In order, in one worker (`results` is shared) — the config runs other files' tests in parallel.
+// Run this file alone: other apps running beside it would skew the numbers.
+test.describe.configure({ mode: 'default' })
 
-// Only for the apps these tests launch (all spec files share one worker process).
+// Only for the apps these tests launch (in this worker process).
 test.beforeAll(() => {
   process.env.BRIGHTERM_PERF = '1'
 })
