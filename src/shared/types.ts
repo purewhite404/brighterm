@@ -154,9 +154,12 @@ export interface InstalledPlugin {
 // ---------------------------------------------------------------------------
 
 export interface TileMemoryInfo {
+  /** A tile, a tile's sub-view ("<tileId>::<name>"), or the "__shell" / "__core" rows. */
   tileId: string
   /** Resident set size, in bytes. */
   memoryBytes: number
+  /** Only while it's busy (see main/sysmon/cpuBadges.ts), else null. 100 = one core fully busy. */
+  cpuPercent: number | null
   suspended: boolean
   lastActiveAt: number
 }

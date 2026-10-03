@@ -278,6 +278,14 @@ body.bt-resizing-column * {
   font-family: var(--bt-font-mono);
 }
 
+/* Only shown while the tile is busy, so it may stand out a little. */
+.bt-tile__cpu {
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-warning);
+  font-family: var(--bt-font-mono);
+  white-space: nowrap;
+}
+
 .bt-tile__close {
   border: none;
   background: transparent;

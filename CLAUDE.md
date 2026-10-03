@@ -157,7 +157,10 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   page's JS heap is only ~5 MB, so splitting the renderer bundle wouldn't buy much; turning
   spellcheck off saved only ~3 MB per web view, so it stays on; idle CPU is ~0 %.)
 - **si.mem() on Windows spawns PowerShell** — too slow for the 0.5 s SysMon poll;
-  `sysMonitor.ts` uses `os.totalmem/freemem` there. `si.processes()` is polled every 3 s only.
+  `sysMonitor.ts` uses `os.totalmem/freemem` there. **`si.processes()` is never polled**: on
+  Windows it runs PowerShell (`Get-CimInstance`, ~0.3 s CPU per call — every 3 s was ~10 % of
+  a core); the list loads when the tile opens and on its 更新 button (user's choice, 2026-10-03;
+  a resident PowerShell was ~16 ms per call but 80-100+ MB and growing).
 - **systeminformation runs in a worker thread** (`sysmon/sysmonWorker.ts` via electron-vite's
   `?nodeWorker`, `SysmonClient`), never in the main process: loading it compiles a big module
   and runs `chcp` with **execSync** — that blocked main ~100 ms at startup, right when the
@@ -177,6 +180,31 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   right after creating the window (`terminal/prewarm.ts`, 100×30); the tile attaches like a
   remount (backlog + resize). PowerShell needs ~0.7 s to its prompt, so this is most of the
   startup gain (prompt 1.36 → 0.90 s).
+- **Terminal output is batched** (`terminal/ptyOutput.ts`): sent 5 ms after its first chunk,
+  backlog kept as chunks. 30,000 lines were ~18,000 IPC messages and a 200 KB string
+  re-sliced per chunk; now ~700 messages, half the renderer CPU. The main process still
+  burns ~1 core during such a burst — node-pty's own ConPTY reading (the JS thread is ~90 %
+  idle in a profile), not ours.
+- **Plugin registry / storage / folder grants are cached in memory** (`PluginHost.list()`,
+  `hostApiBridge` storage + folders, written through). Every Host API call and every
+  `plugin-app://` request (each image of a photo viewer) used to re-read and parse
+  installed.json, every manifest.json and folders.json on the main process.
+- **Hidden is hidden**: a WebContentsView at 0×0 bounds (another workspace, overlay) is
+  `visibilityState: hidden` with no rAF and ~1 Hz timers — checked with a bare Electron
+  script. Under Playwright every page reports "visible" (its focus/visibility emulation),
+  so tests fake `document.hidden` + `visibilitychange` instead. SysMon stops polling while
+  hidden; the memory loop doesn't send while the window is minimized.
+- **Per-tile memory / CPU** (tile headers, SysMon's breakdown) come from `app.getAppMetrics()`
+  in the 0.5 s memory loop (~0.1 ms a call). Plugin `<iframe>`s run in processes of their own;
+  they're found by their `name` (`pluginFrameName(tileId)`, `shared/pluginFrame.ts`) through
+  `framesInSubtree`. A header adds up the tile's sub-views (`tileUsage.ts`). Built-in tiles share
+  the UI process and can't be told apart, so they show nothing. **`percentCPUUsage` is a share of
+  the whole machine** (one busy core read ~3 % on this 32-thread PC) — the loop multiplies by
+  `availableParallelism()` so 100 % = one core. CPU shows only while busy (2 s average ≥ 5 %,
+  hidden below 3 %: `cpuBadges.ts`); idle tiles measured quiet. Under Playwright, a tile that
+  burns a core reads ~100 % (sysmon.spec's CPU Burner plugin).
+- **Files tile** only re-renders on a resize when the set of columns that fit changes, and
+  reads the workspace at click time (it re-rendered whenever any tile saved its config).
 - **Startup floor**: process start → shell page committed ≈ 0.2 s, then ~0.19 s in which the
   shell renderer does nothing traceable before the preload runs — Electron/Chromium's own
   renderer start (`sandbox: true` didn't change it; measured with a trace). The shell's JS is
@@ -278,6 +306,15 @@ above (guide-line splitters, sysmon worker, prewarmed terminals, fewer re-render
 Built app, 6 tiles: terminal prompt 1.36 → 0.90 s, Notes/Browser ~0.81 → ~0.75 s; a
 360-move splitter drag 1,440 → 6 IPC, shell script 652 → 62 ms. `npm run dev` is slower
 than these (React dev build, StrictMode double effects, DevTools opened at every start).
+
+Then (2026-10-03, later) a resource audit of every tile and the app: terminal output batched,
+plugin registry/storage/folders cached, Files re-renders cut, SysMon's process list on demand
+(更新 button), nothing polled while minimized (see the gotchas). AGENTS.md got
+"軽く動かすためのルール" (debounced saves, no polling, pause on `document.hidden`, lazy images,
+small storage) — the plugin's own code is written by the AI each time, so this is the main
+guard; static checks / runtime call-rate warnings were proposed and deferred by the user.
+The spec goes into the chat prompt inside a fence longer than its own ```js examples
+(`fenceFor` in promptBuilder.ts).
 
 Known gaps / possible next steps:
 - Folder bar: no breadcrumb (clickable segments to go up) yet.

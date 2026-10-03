@@ -2,6 +2,7 @@ import { BaseWindow, WebContentsView, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from './utils/env'
 import { perfMark } from './perf'
+import { tileIdOfPluginFrame } from '@shared/pluginFrame'
 
 /** Sends an event to the renderer (a no-op while there's no window). */
 export type Send = (channel: string, ...args: unknown[]) => void
@@ -21,9 +22,20 @@ export const send: Send = (channel, ...args) => {
   shellView?.webContents.send(channel, ...args)
 }
 
-/** The shell page's renderer process, where Terminal, Files, Notes & co. live. */
+/** The shell page's renderer process, where Terminal, Files, Calendar & co. live. */
 export function shellProcessId(): number | null {
   return shellView?.webContents.getOSProcessId() ?? null
+}
+
+/** tileId -> OS pid of each plugin tile's <iframe> (they run in processes of their own). */
+export function pluginFramePids(): Map<string, number> {
+  const result = new Map<string, number>()
+  if (!shellView || shellView.webContents.isDestroyed()) return result
+  for (const frame of shellView.webContents.mainFrame.framesInSubtree) {
+    const tileId = tileIdOfPluginFrame(frame.name)
+    if (tileId) result.set(tileId, frame.osProcessId)
+  }
+  return result
 }
 
 export function createMainWindow(): void {

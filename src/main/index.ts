@@ -5,7 +5,7 @@ import { ConfigStore } from './configStore'
 import { createSafeStorageCrypto } from './cryptoAdapter'
 import { SecretStore } from './secretStore'
 import { applyWebTheme, registerAppIpc } from './appIpc'
-import { createMainWindow, focusMainWindow, getMainWindow, send, shellProcessId } from './window'
+import { createMainWindow, focusMainWindow, getMainWindow, pluginFramePids, send, shellProcessId } from './window'
 import { ViewManager } from './views/viewManager'
 import { registerViewsIpc } from './views/ipc'
 import { startMemoryLoop } from './views/memoryLoop'
@@ -137,7 +137,17 @@ function boot(): void {
         console.error(`[terminal] could not start the shell for ${tileId} early:`, err)
       }
     }
-    startMemoryLoop({ viewManager: views, suspendAfterMs: () => configStore.get().suspendAfterMs, shellProcessId, send })
+    startMemoryLoop({
+      viewManager: views,
+      suspendAfterMs: () => configStore.get().suspendAfterMs,
+      shellProcessId,
+      pluginFramePids,
+      windowShown: () => {
+        const win = getMainWindow()
+        return win !== null && win.isVisible() && !win.isMinimized()
+      },
+      send
+    })
     google.startPolling()
     stopGooglePolling = google.stopPolling
 

@@ -5,6 +5,7 @@ import { Icon } from '../../ui/Icon'
 import { buildRuntimeFixPrompt } from '../ai-builder/promptBuilder'
 import { usePluginList } from '../shared/usePluginList'
 import { useTileConfig } from '../shared/useTileConfig'
+import { pluginFrameName } from '@shared/pluginFrame'
 import { FolderBar } from './FolderBar'
 import './plugin.css'
 
@@ -231,6 +232,7 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
         src={src}
         title={title ?? pluginId}
         className="bt-plugin-frame"
+        name={pluginFrameName(tileId)}
         onLoad={() => {
           performance.mark(`plugin-loaded:${tileId}`)
           setLoaded(true)

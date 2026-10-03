@@ -158,3 +158,55 @@
 .bt-cpu-chart__tooltip strong {
   color: var(--bt-text-primary);
 }
+
+.bt-sysmon__section-title--with-action {
+  display: flex;
+  align-items: center;
+  gap: var(--bt-space-2);
+}
+
+.bt-sysmon__as-of {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.bt-sysmon__refresh {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--bt-border);
+  border-radius: var(--bt-radius-sm);
+  background: var(--bt-bg-1);
+  color: var(--bt-text-secondary);
+  font-size: var(--bt-font-size-xs);
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
+.bt-sysmon__refresh:hover:not(:disabled) {
+  color: var(--bt-text-primary);
+  background: var(--bt-bg-2);
+}
+
+.bt-sysmon__refresh:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.bt-sysmon__error {
+  color: var(--bt-danger);
+  font-size: var(--bt-font-size-sm);
+  padding: 4px var(--bt-space-2);
+}
+
+.bt-sysmon__row-cpu {
+  margin-left: auto;
+  margin-right: var(--bt-space-3);
+  font-family: var(--bt-font-mono);
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-warning);
+  align-self: center;
+}

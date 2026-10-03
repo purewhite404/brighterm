@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { ProcessInfo, SystemSnapshot } from '@shared/apiTypes'
 import { useAppStore } from '../../store/appStore'
 import { Icon } from '../../ui/Icon'
@@ -9,18 +9,28 @@ import './sysmon.css'
 
 const POLL_MS = 500
 const HISTORY_MS = 60 * 1000
-/** Listing processes costs far more than CPU/memory, so the process list refreshes less often. */
-const PROCESS_POLL_MS = 3000
+
+/**
+ * The process list is fetched when the tile opens and when 更新 is pressed — never
+ * polled: on Windows each listing runs PowerShell (~0.3 s of CPU, measured 2026-10-03),
+ * which every 3 s was ~10 % of a core for as long as the tile was shown.
+ */
+function timeOfDay(ms: number): string {
+  return new Date(ms).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
 
 /** Rows that aren't a tile of their own (see main/sysmon/appMemory.ts). */
 const APP_ROW_NAMES: Record<string, string> = {
-  __shell: 'UI・内蔵タイル（Terminal, Files, Notes など）',
+  __shell: 'UI・内蔵タイル（Terminal, Files, Calendar など）',
   __core: 'メイン・GPU ほか'
 }
 
 export function SysMonTile(): React.JSX.Element {
   const [snapshot, setSnapshot] = useState<SystemSnapshot | null>(null)
   const [processes, setProcesses] = useState<ProcessInfo[]>([])
+  const [processesAt, setProcessesAt] = useState<number | null>(null)
+  const [loadingProcesses, setLoadingProcesses] = useState(false)
+  const [processError, setProcessError] = useState<string | null>(null)
   const [cpuHistory, setCpuHistory] = useState<CpuSample[]>([])
   const tileMemory = useAppStore((s) => s.memorySnapshot)
   const config = useAppStore((s) => s.config)
@@ -37,21 +47,41 @@ export function SysMonTile(): React.JSX.Element {
     return viewId
   }
 
+  const mounted = useRef(true)
+  const loadProcesses = async (): Promise<void> => {
+    setLoadingProcesses(true)
+    try {
+      const snap = await window.api.sysmon.snapshot({ processes: true })
+      if (!mounted.current) return
+      setProcesses(snap.topProcesses ?? [])
+      setProcessesAt(Date.now())
+      setProcessError(null)
+    } catch (err) {
+      if (mounted.current) setProcessError(err instanceof Error ? err.message : String(err))
+    } finally {
+      if (mounted.current) setLoadingProcesses(false)
+    }
+  }
+  useEffect(() => {
+    mounted.current = true
+    void loadProcesses()
+    return () => {
+      mounted.current = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     let cancelled = false
     let inFlight = false
-    let lastProcessesAt = 0
     async function tick(): Promise<void> {
       // Skip a beat rather than pile up requests if one takes longer than POLL_MS.
       if (inFlight) return
       inFlight = true
       try {
-        const wantProcesses = Date.now() - lastProcessesAt >= PROCESS_POLL_MS
-        if (wantProcesses) lastProcessesAt = Date.now()
-        const snap = await window.api.sysmon.snapshot({ processes: wantProcesses })
+        const snap = await window.api.sysmon.snapshot({ processes: false })
         if (cancelled) return
         setSnapshot(snap)
-        if (snap.topProcesses) setProcesses(snap.topProcesses)
         const now = Date.now()
         setCpuHistory((prev) =>
           [...prev, { time: now, percent: snap.cpuLoadPercent }].filter((p) => now - p.time <= HISTORY_MS)
@@ -62,11 +92,23 @@ export function SysMonTile(): React.JSX.Element {
         inFlight = false
       }
     }
-    void tick()
-    const interval = setInterval(tick, POLL_MS)
+    // Only while the window can be seen (not minimized or fully covered).
+    let interval: ReturnType<typeof setInterval> | undefined
+    const sync = (): void => {
+      if (document.hidden) {
+        clearInterval(interval)
+        interval = undefined
+      } else if (!interval) {
+        void tick()
+        interval = setInterval(tick, POLL_MS)
+      }
+    }
+    sync()
+    document.addEventListener('visibilitychange', sync)
     return () => {
       cancelled = true
       clearInterval(interval)
+      document.removeEventListener('visibilitychange', sync)
     }
   }, [])
 
@@ -129,6 +171,11 @@ export function SysMonTile(): React.JSX.Element {
             .map((t) => (
               <div key={t.tileId} className="bt-sysmon__row">
                 <span className="bt-sysmon__row-name">{tileName(t.tileId)}</span>
+                {t.cpuPercent !== null && (
+                  <span className="bt-sysmon__row-cpu" title="直近 2 秒の平均。100% = CPU 1 コアを使い切っている状態">
+                    CPU {t.cpuPercent}%
+                  </span>
+                )}
                 <span className="bt-sysmon__row-badge">{t.suspended ? '休止中' : formatBytes(t.memoryBytes)}</span>
               </div>
             ))
@@ -137,7 +184,20 @@ export function SysMonTile(): React.JSX.Element {
         )}
       </div>
 
-      <div className="bt-sysmon__section-title">System processes</div>
+      <div className="bt-sysmon__section-title bt-sysmon__section-title--with-action">
+        <span>System processes</span>
+        {processesAt !== null && <span className="bt-sysmon__as-of">{timeOfDay(processesAt)} 時点</span>}
+        <button
+          type="button"
+          className="bt-sysmon__refresh"
+          onClick={() => void loadProcesses()}
+          disabled={loadingProcesses}
+          title="プロセス一覧を取り直す（Windows では取得に PowerShell を使うため、自動では更新しません）"
+        >
+          <Icon name="refresh" size={12} /> {loadingProcesses ? '取得中…' : '更新'}
+        </button>
+      </div>
+      {processError && <div className="bt-sysmon__error">プロセス一覧を取得できませんでした: {processError}</div>}
       <div className="bt-sysmon__list">
         {processes.map((p) => (
           <div key={p.pid} className="bt-sysmon__row">

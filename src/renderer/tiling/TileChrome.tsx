@@ -4,6 +4,7 @@ import { resolveTileComponent } from '../tiles/registry'
 import { Icon } from '../ui/Icon'
 import { formatTileMemory } from '../ui/formatBytes'
 import { TileDragContext, TILE_DRAG_MIME } from './tileContexts'
+import { tileUsage } from './tileUsage'
 
 /**
  * A tile's frame (header + body). Memoized, and the body element too: the
@@ -13,8 +14,10 @@ import { TileDragContext, TILE_DRAG_MIME } from './tileContexts'
 export const TileChrome = memo(function TileChrome({ tileId }: { tileId: string }): React.JSX.Element {
   const tile = useAppStore((s) => selectActiveWorkspace(s)?.tiles[tileId])
   const titleOverride = useAppStore((s) => s.runtime[tileId]?.titleOverride)
-  // A number, not the snapshot's entry object: that one is new on every tick.
-  const memoryBytes = useAppStore((s) => s.memorySnapshot?.tiles.find((t) => t.tileId === tileId)?.memoryBytes ?? 0)
+  // Strings / numbers, not the snapshot's objects (new on every 0.5 s tick): the header only
+  // re-renders when what it shows changes.
+  const memoryLabel = useAppStore((s) => formatTileMemory(tileUsage(s.memorySnapshot?.tiles, tileId).memoryBytes))
+  const cpuPercent = useAppStore((s) => tileUsage(s.memorySnapshot?.tiles, tileId).cpuPercent)
   const closeTile = useAppStore((s) => s.closeTile)
   const drag = useContext(TileDragContext)
 
@@ -43,7 +46,12 @@ export const TileChrome = memo(function TileChrome({ tileId }: { tileId: string 
         <span className="bt-tile__title" title={title}>
           {title}
         </span>
-        {memoryBytes > 0 && <span className="bt-tile__memory">{formatTileMemory(memoryBytes)}</span>}
+        {cpuPercent !== null && (
+          <span className="bt-tile__cpu" title="このタイルの CPU 使用率（直近 2 秒の平均。100% = CPU 1 コアを使い切っている状態）。忙しいときだけ表示されます">
+            CPU {cpuPercent}%
+          </span>
+        )}
+        {memoryLabel && <span className="bt-tile__memory">{memoryLabel}</span>}
         <button
           className="bt-tile__close"
           onClick={(e) => {
