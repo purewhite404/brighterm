@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildAddTilePrompt, buildFixPrompt, buildRuntimeFixPrompt } from './promptBuilder'
+import { buildAddTilePrompt, buildFixPrompt, buildRuntimeFixPrompt, fenceFor } from './promptBuilder'
 
 describe('buildAddTilePrompt', () => {
   it('embeds the user request', () => {
@@ -9,8 +9,23 @@ describe('buildAddTilePrompt', () => {
 
   it('embeds the AGENTS.md content wrapped in a markdown code fence', () => {
     const prompt = buildAddTilePrompt('x')
-    expect(prompt).toContain('```markdown')
+    expect(prompt).toMatch(/^`{3,}markdown$/m)
     expect(prompt).toContain('btbundle')
+  })
+
+  it('wraps the spec in a fence its own ```js examples cannot close', () => {
+    const prompt = buildAddTilePrompt('x')
+    const open = prompt.match(/^(`{3,})markdown$/m)![1]
+    const spec = prompt.slice(prompt.indexOf(`${open}markdown`) + open.length + 'markdown'.length, prompt.indexOf(`\n${open}\n`))
+    expect(spec).toContain('```js') // the examples are inside…
+    expect(spec).toContain('軽く動かすためのルール') // …and so is what comes after them
+    expect(spec).not.toMatch(new RegExp(`^${open}$`, 'm'))
+  })
+
+  it('fenceFor: one backtick longer than the longest run inside, at least three', () => {
+    expect(fenceFor('plain')).toBe('```')
+    expect(fenceFor('a ```js b ``` c')).toBe('````')
+    expect(fenceFor('`````')).toBe('``````')
   })
 
   it('includes the exact Host API types, so the AI doesn’t guess how to call fs.*', () => {

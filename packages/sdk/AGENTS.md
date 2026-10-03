@@ -103,7 +103,8 @@
     for (const entry of entries) {
       if (entry.isDirectory || !/\.(jpe?g|png|gif|webp|bmp|avif)$/i.test(entry.name)) continue
       const img = document.createElement('img')
-      img.loading = 'lazy'
+      img.loading = 'lazy'     // 見えるところまでスクロールしてから読み込む
+      img.decoding = 'async'
       img.src = await window.brighterm.fs.fileUrl(folder, entry.name)
       gallery.append(img)
     }
@@ -135,6 +136,59 @@
 - `eval`, `new Function`, `document.write`, インラインの `<script>` タグの中で
   の `fetch` の動的URL生成などは検証で弾かれることがあります。素直に書いてくだ
   さい。
+
+### 軽く動かすためのルール（必ず守ること）
+
+プラグインは、ターミナルやブラウザなどほかのタイルと同じパソコンの上で、一日中
+開いたままにされます。見ていない間も CPU・メモリ・ディスクを使い続ける書き方は
+しないでください。
+
+- **保存はまとめる。** 入力のたびに `fs.writeFile` や `storage.set` を呼ばず、入力が
+  止まってから 0.5〜1 秒後に1回だけ保存してください（下の例）。フォルダやファイルを
+  切り替える直前には、待っている保存をすぐ実行してください（書きかけを失わないため）。
+
+  ```js
+  let saveTimer = null
+  editor.addEventListener('input', () => {
+    clearTimeout(saveTimer)
+    saveTimer = setTimeout(save, 700) // 打ち終わって 0.7 秒後に1回
+  })
+  async function flushSave() {        // 切り替えの前に呼ぶ
+    if (!saveTimer) return
+    clearTimeout(saveTimer)
+    saveTimer = null
+    await save()
+  }
+  ```
+- **見張らない。** `setInterval` や `setTimeout` の繰り返しで、フォルダの中身や状態の
+  変化を確かめ続けないでください。変化はイベント（`input`, `click`,
+  `onFolderBarChange` など）で受け取り、フォルダの中身はユーザーが操作したとき
+  （フォルダを開いた・更新ボタンを押した・ファイルを作った）にだけ読み直します。
+- どうしても定期的な処理が要るとき（時計、外部 API の取得など）は、間隔を 1 秒以上
+  （ネットワークは 1 分以上）にし、タイルが見えていない間（`document.hidden` が
+  `true` の間）は止めてください。
+
+  ```js
+  let timer = null
+  function syncTimer() {
+    clearInterval(timer)
+    timer = document.hidden ? null : setInterval(refresh, 60_000)
+  }
+  document.addEventListener('visibilitychange', syncTimer)
+  syncTimer()
+  ```
+- `requestAnimationFrame` を回し続けないでください。動きは CSS のアニメーションや
+  トランジションで付け、JavaScript で動かすのは動いている間だけにします。
+- **画像は必要な分だけ。** `fileUrl` の URL を `<img loading="lazy" decoding="async">`
+  で表示してください。数百枚を超えるフォルダでは、全部を一度に `<img>` にせず、見え
+  ている範囲の分だけ作ってください（`IntersectionObserver` など）。CSS で小さく表示
+  しても、画像は元の大きさのままメモリに展開されます。
+- 一覧の表示を作り直すのは、中身が変わったときだけにしてください。検索欄の絞り込みは
+  入力が止まってから（0.2〜0.3 秒）にし、たくさんの要素は `DocumentFragment` にまとめて
+  一度に追加します。
+- `storage` は設定や小さな状態（選んだフォルダ、並び順など）のためのものです。
+  ファイルの中身のような大きなデータは入れないでください（`storage.set` のたびに保存
+  領域全体が書き直されます）。大きなデータはフォルダのファイルに保存します。
 
 ## kind: "web" のプラグインを書くときのルール
 

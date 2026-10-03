@@ -7,18 +7,29 @@ import hostApiTypes from '@sdk/host-api.d.ts?raw'
  * so it's trivially unit-testable and safe to call on every keystroke.
  */
 
+/**
+ * A code fence longer than any backtick run inside `text`: AGENTS.md has ```js examples
+ * of its own, and with a ``` fence around it the first of them would end the spec.
+ */
+export function fenceFor(text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length))
+  return '`'.repeat(Math.max(3, longest + 1))
+}
+
 /** The spec plus the exact Host API types — without them the AI guesses call signatures. */
 function specBlocks(): string[] {
+  const specFence = fenceFor(agentsDoc)
+  const typesFence = fenceFor(hostApiTypes)
   return [
-    '```markdown',
+    `${specFence}markdown`,
     agentsDoc.trim(),
-    '```',
+    specFence,
     '',
     'Host API（window.brighterm）の型定義 host-api.d.ts。関数はここにあるものだけが使えます:',
     '',
-    '```ts',
+    `${typesFence}ts`,
     hostApiTypes.trim(),
-    '```'
+    typesFence
   ]
 }
 
