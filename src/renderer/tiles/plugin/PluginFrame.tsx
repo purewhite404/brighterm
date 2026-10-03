@@ -231,7 +231,10 @@ export function PluginFrame({ tileId }: { tileId: string }): React.JSX.Element {
         src={src}
         title={title ?? pluginId}
         className="bt-plugin-frame"
-        onLoad={() => setLoaded(true)}
+        onLoad={() => {
+          performance.mark(`plugin-loaded:${tileId}`)
+          setLoaded(true)
+        }}
         sandbox="allow-scripts allow-forms allow-modals allow-popups"
       />
     </div>

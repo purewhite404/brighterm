@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { dock, launch } from './helpers'
+import { dock, launch, launchIn, removeDir, seedWorkspace, startSite, tempDir } from './helpers'
 
 async function slotRects(window: Page) {
   return window.locator('.bt-tile-slot').evaluateAll((els) =>
@@ -95,5 +95,116 @@ test('Dock: an empty workspace can be removed, one with tiles cannot', async () 
     await expect(s.window.locator('.bt-terminal-tile')).toBeVisible()
   } finally {
     await s.cleanup()
+  }
+})
+
+/** Left edge and width of every tile slot, left to right. */
+async function slotXs(window: Page) {
+  return (await slotRects(window)).sort((a, b) => a.x - b.x).map((r) => ({ x: r.x, w: r.w }))
+}
+
+test('dragging a splitter moves only a guide line; the tiles resize on release, Escape cancels', async () => {
+  const dir = tempDir()
+  try {
+    seedWorkspace(dir, {
+      sysmon: { id: 'sysmon', kind: 'builtin', typeId: 'sysmon', title: 'System Monitor', icon: 'activity', config: {} },
+      calendar: { id: 'calendar', kind: 'builtin', typeId: 'calendar', title: 'Calendar', icon: 'calendar', config: {} }
+    })
+    const s = await launchIn(dir)
+    try {
+      await expect(s.window.locator('.bt-tile-slot')).toHaveCount(2)
+      const before = await slotXs(s.window)
+
+      const splitter = s.window.locator('.bt-splitter--row')
+      const box = (await splitter.boundingBox())!
+      const x = box.x + box.width / 2
+      const y = box.y + box.height / 2
+
+      await s.window.mouse.move(x, y)
+      await s.window.mouse.down()
+      await s.window.mouse.move(x + 150, y, { steps: 10 })
+      // The line follows the pointer…
+      await expect(splitter).toHaveClass(/bt-splitter--dragging/)
+      await expect.poll(async () => Math.round((await splitter.boundingBox())!.x - box.x)).toBe(150)
+      // …while the tiles stay as they were.
+      expect(await slotXs(s.window)).toEqual(before)
+      await s.window.mouse.up()
+
+      await expect(splitter).not.toHaveClass(/bt-splitter--dragging/)
+      await expect.poll(async () => (await slotXs(s.window))[0].w - before[0].w).toBeGreaterThan(140)
+      const resized = await slotXs(s.window)
+
+      // Escape: the line goes back and nothing changes.
+      const box2 = (await splitter.boundingBox())!
+      await s.window.mouse.move(box2.x + box2.width / 2, y)
+      await s.window.mouse.down()
+      await s.window.mouse.move(box2.x - 200, y, { steps: 10 })
+      await s.window.keyboard.press('Escape')
+      await s.window.mouse.up()
+      await expect(splitter).not.toHaveClass(/bt-splitter--dragging/)
+      expect(await slotXs(s.window)).toEqual(resized)
+      expect(Math.round((await splitter.boundingBox())!.x)).toBe(Math.round(box2.x))
+      expect(s.pageErrors).toEqual([])
+    } finally {
+      await s.app.close()
+    }
+  } finally {
+    removeDir(dir)
+  }
+})
+
+test('splitter drag next to a web page: a snapshot stands in while dragging, the page follows on release', async () => {
+  const site = await startSite()
+  const dir = tempDir()
+  try {
+    seedWorkspace(dir, {
+      browser: { id: 'browser', kind: 'builtin', typeId: 'browser', title: 'Browser', icon: 'globe', config: { url: `${site.origin}/a` } },
+      calendar: { id: 'calendar', kind: 'builtin', typeId: 'calendar', title: 'Calendar', icon: 'calendar', config: {} }
+    })
+    const s = await launchIn(dir)
+    try {
+      const placeholder = s.window.locator('.bt-web-tile')
+      const viewBounds = () =>
+        s.app.evaluate(({ BaseWindow }) => {
+          const [win] = BaseWindow.getAllWindows()
+          return win.contentView.children[1].getBounds()
+        })
+      const placeholderBounds = async () => {
+        const b = (await placeholder.boundingBox())!
+        return { x: Math.round(b.x), y: Math.round(b.y), width: Math.round(b.width), height: Math.round(b.height) }
+      }
+      await expect.poll(async () => (await viewBounds()).width).toBeGreaterThan(0)
+      await expect.poll(viewBounds).toEqual(await placeholderBounds())
+
+      const splitter = s.window.locator('.bt-splitter--row')
+      const box = (await splitter.boundingBox())!
+      const y = box.y + box.height / 2
+      await s.window.mouse.move(box.x + box.width / 2, y)
+      await s.window.mouse.down()
+      await s.window.mouse.move(box.x + 200, y, { steps: 10 })
+      // The page is swapped for its snapshot, so the guide line can be seen over it.
+      await expect(s.window.locator('.bt-web-tile__snapshot')).toBeVisible()
+      await expect.poll(async () => (await viewBounds()).width).toBe(0)
+      await s.window.mouse.up()
+
+      await expect(s.window.locator('.bt-web-tile__snapshot')).toHaveCount(0)
+      const after = await placeholderBounds()
+      expect(after.width).toBeGreaterThan(box.x)
+      await expect.poll(viewBounds).toEqual(after)
+
+      // A quick click on the splitter (released before the capture is done) leaves the page shown.
+      await s.window.mouse.move(box.x + 200, y)
+      await s.window.mouse.down()
+      await s.window.mouse.up()
+      await s.window.waitForTimeout(500)
+      expect(await viewBounds()).toEqual(after)
+      await expect(s.window.locator('.bt-web-tile__snapshot')).toHaveCount(0)
+      expect(s.pageErrors).toEqual([])
+    } finally {
+      await s.app.close()
+    }
+  } finally {
+    removeDir(dir)
+    site.server.close()
   }
 })

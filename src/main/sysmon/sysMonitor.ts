@@ -1,7 +1,12 @@
 import os from 'node:os'
 import type { SystemSnapshot } from '@shared/apiTypes'
 
-/** Loaded when a System Monitor first asks (~5 MB in the main process). */
+/**
+ * Runs in the sysmon worker thread (sysmonWorker.ts), never in the main process:
+ * loading systeminformation compiles a big module and runs `chcp` with execSync,
+ * which blocked the main process ~100 ms at startup (measured 2026-10-03).
+ * Loaded when a System Monitor first asks.
+ */
 let systeminformation: Promise<typeof import('systeminformation')> | null = null
 function loadSi(): Promise<typeof import('systeminformation')> {
   systeminformation ??= import('systeminformation').then((m) => (m as { default?: typeof import('systeminformation') }).default ?? m)

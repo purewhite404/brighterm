@@ -16,7 +16,9 @@ import {
   moveTile,
   autoGrid,
   chooseGridColumns,
-  computeSplitters
+  computeSplitters,
+  splitterOffset,
+  splitterRatioAt
 } from './layout'
 
 describe('leaf / split constructors', () => {
@@ -323,5 +325,37 @@ describe('computeSplitters', () => {
 
   it('returns nothing for a single leaf', () => {
     expect(computeSplitters(leaf('a'), { x: 0, y: 0, width: 10, height: 10 }, 4)).toEqual([])
+  })
+})
+
+describe('splitterRatioAt / splitterOffset (the guide line while dragging)', () => {
+  const tree = split('row', leaf('a'), split('column', leaf('b'), leaf('c'), 0.25), 0.4)
+  const [rowHandle, columnHandle] = computeSplitters(tree, { x: 0, y: 0, width: 1000, height: 800 }, 6)
+
+  it('turns the pointer into a ratio of the split it belongs to', () => {
+    expect(splitterRatioAt(rowHandle, 600, 123)).toBe(0.6)
+    // The nested column split spans x 400..1000, y 0..800.
+    expect(splitterRatioAt(columnHandle, 999, 400)).toBe(0.5)
+  })
+
+  it('stops at the same limits as resizeAt', () => {
+    expect(splitterRatioAt(rowHandle, -50, 0)).toBe(0.05)
+    expect(splitterRatioAt(rowHandle, 5000, 0)).toBe(0.95)
+    expect(resizeAt(tree, [], splitterRatioAt(rowHandle, 5000, 0))).toMatchObject({ ratio: 0.95 })
+  })
+
+  it('moves the handle to where the split will be after release', () => {
+    expect(splitterOffset(rowHandle, 0.4)).toBe(0)
+    expect(splitterOffset(rowHandle, 0.6)).toBe(200)
+    expect(splitterOffset(columnHandle, 0.5)).toBe(200)
+    const after = computeSplitters(resizeAt(tree, [], 0.6), { x: 0, y: 0, width: 1000, height: 800 }, 6)[0]
+    expect(after.rect.x).toBe(rowHandle.rect.x + splitterOffset(rowHandle, 0.6))
+  })
+
+  it('copes with a zero-sized split (no NaN)', () => {
+    const [handle] = computeSplitters(tree, { x: 0, y: 0, width: 0, height: 0 }, 6)
+    const ratio = splitterRatioAt(handle, 10, 10)
+    expect(ratio).toBeGreaterThanOrEqual(0.05)
+    expect(ratio).toBeLessThanOrEqual(0.95)
   })
 })

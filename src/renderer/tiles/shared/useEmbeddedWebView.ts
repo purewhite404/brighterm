@@ -41,34 +41,47 @@ export function useEmbeddedWebView(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewId, partitionId, hasSource])
 
-  const report = (): void => {
+  // The rect last sent to main, and the frame a report is waiting for: several
+  // triggers (size, the tile's position, the window) collapse into one measurement
+  // per frame, and main only hears about a rect that changed.
+  const lastSent = useRef('')
+  const pendingFrame = useRef(0)
+
+  const measureNow = (): void => {
+    pendingFrame.current = 0
     const el = ref.current
     if (!el) return
     const r = el.getBoundingClientRect()
-    void window.api.tile.setBounds(viewId, { x: r.x, y: r.y, width: r.width, height: r.height })
+    const rect = { x: r.x, y: r.y, width: r.width, height: r.height }
+    const key = `${Math.round(r.x)},${Math.round(r.y)},${Math.round(r.width)},${Math.round(r.height)}`
+    if (key === lastSent.current) return
+    lastSent.current = key
+    void window.api.tile.setBounds(viewId, rect)
+  }
+  // Wait for the frame: a new absolute position must be applied before measuring.
+  const report = (): void => {
+    if (!pendingFrame.current) pendingFrame.current = requestAnimationFrame(measureNow)
   }
 
   useEffect(() => {
     const el = ref.current
     if (!el || !url) return
+    lastSent.current = '' // a (re)created view must hear its bounds
     const observer = new ResizeObserver(report)
     observer.observe(el)
     window.addEventListener('resize', report)
-    report()
+    measureNow()
     return () => {
       observer.disconnect()
       window.removeEventListener('resize', report)
+      cancelAnimationFrame(pendingFrame.current)
+      pendingFrame.current = 0
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewId, url])
 
   // A tile can move without changing size (e.g. swapped with an equal-sized one).
-  useEffect(() => {
-    // Wait for the new absolute position to be applied before measuring.
-    const frame = requestAnimationFrame(report)
-    return () => cancelAnimationFrame(frame)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tileRect?.x, tileRect?.y, tileRect?.width, tileRect?.height])
+  useEffect(report, [tileRect?.x, tileRect?.y, tileRect?.width, tileRect?.height]) // eslint-disable-line react-hooks/exhaustive-deps
 
   return ref
 }

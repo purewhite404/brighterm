@@ -128,6 +128,12 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   Never run `electron-builder install-app-deps` / electron-rebuild; `npmRebuild: false`
   is set in `electron-builder.yml`. (This machine's Python lacks `distutils`, so any
   node-gyp build fails anyway.)
+- **electron-builder on Windows: "Cannot create symbolic link"** while extracting
+  `winCodeSign-2.6.0.7z` — its two macOS `.dylib` symlinks need admin / Developer Mode.
+  Fix once per machine: extract it without `darwin/` into the cache dir it looks for,
+  `node_modules\7zip-bin\win\x64\7za.exe x -y <cache>\winCodeSign\<n>.7z
+  -o%LOCALAPPDATA%\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0 -xr!darwin`
+  (done 2026-10-03; failed attempts leave `<n>/` + `<n>.7z` there, safe to delete).
 - **Module format**: root `package.json` is `"type": "module"`, so main and preload are
   emitted as **`.cjs`** (`electron.vite.config.ts`). A `.js` preload fails with
   `ERR_REQUIRE_ESM` and `window.api` is undefined.
@@ -152,6 +158,30 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   spellcheck off saved only ~3 MB per web view, so it stays on; idle CPU is ~0 %.)
 - **si.mem() on Windows spawns PowerShell** — too slow for the 0.5 s SysMon poll;
   `sysMonitor.ts` uses `os.totalmem/freemem` there. `si.processes()` is polled every 3 s only.
+- **systeminformation runs in a worker thread** (`sysmon/sysmonWorker.ts` via electron-vite's
+  `?nodeWorker`, `SysmonClient`), never in the main process: loading it compiles a big module
+  and runs `chcp` with **execSync** — that blocked main ~100 ms at startup, right when the
+  terminal's `pty.create` was waiting. Works from `app.asar` (packaged app checked).
+- **Splitters move a guide line; the layout changes once, on release** (Escape cancels;
+  web views are swapped for snapshots meanwhile, like a tile drag). Live resizing sent
+  config + bounds + pty-resize IPC and re-rendered every tile per pointer move (360 moves:
+  ~1,440 IPC, 2.3 s main CPU → now 6 IPC). Don't put store updates back in `pointermove`.
+- **Overlay snapshots** (`hideAllForOverlay`) are async: a generation counter stops a capture
+  that finishes after `overlay.hide` from hiding its view again (a quick click on a splitter
+  left a page stuck as a snapshot); `setBounds` under the overlay only records `lastBounds`.
+- **Re-renders**: `TileChrome` is memoized and its body element too; select numbers, not
+  objects, from `memorySnapshot` (a new snapshot arrives every 0.5 s). `App` selects only the
+  layout. Web view bounds are reported at most once a frame and only when changed; terminals
+  fit once a frame and send `pty.resize` only when cols/rows change (after 80 ms).
+- **Terminals start before the window**: main spawns the active workspace's Terminal tiles
+  right after creating the window (`terminal/prewarm.ts`, 100×30); the tile attaches like a
+  remount (backlog + resize). PowerShell needs ~0.7 s to its prompt, so this is most of the
+  startup gain (prompt 1.36 → 0.90 s).
+- **Startup floor**: process start → shell page committed ≈ 0.2 s, then ~0.19 s in which the
+  shell renderer does nothing traceable before the preload runs — Electron/Chromium's own
+  renderer start (`sandbox: true` didn't change it; measured with a trace). The shell's JS is
+  ~40 ms compile+evaluate. Measure with `tests/e2e/perf.spec.ts` (skipped unless
+  `BRIGHTERM_PERF_SPEC=1`; see `src/main/perf.ts` for the marks, CPU profile and trace).
 - **Windows file attributes** (hidden/system/readonly) come from one `cmd /u /c dir /a:X /b`
   call per folder (`fsService.ts`); `attrib` mangles non-ASCII names in its output.
 - **Files → Notes**: file type is sniffed from content (`fileSniff.ts`, not the extension).
@@ -241,6 +271,13 @@ path, subfolder completion, the native picker as a side button) instead of a but
 opened Explorer — as the generic `fs.showFolderBar` Host API (see "Folder bar" above).
 Notes' list sorts by name (A→Z / Z→A, numeric-aware) or modified date (新しい順 / 古い順),
 remembered in storage; for that `fs.listFiles` entries now carry `modifiedAt` (ms).
+
+Then (2026-10-03) a performance pass from "still feels heavy" (splitters not following the
+mouse, slow start), measured before/after with `tests/e2e/perf.spec.ts` — see the gotchas
+above (guide-line splitters, sysmon worker, prewarmed terminals, fewer re-renders).
+Built app, 6 tiles: terminal prompt 1.36 → 0.90 s, Notes/Browser ~0.81 → ~0.75 s; a
+360-move splitter drag 1,440 → 6 IPC, shell script 652 → 62 ms. `npm run dev` is slower
+than these (React dev build, StrictMode double effects, DevTools opened at every start).
 
 Known gaps / possible next steps:
 - Folder bar: no breadcrumb (clickable segments to go up) yet.

@@ -55,8 +55,7 @@ function AgentEventRow({ event }: { event: AgentEvent }): React.JSX.Element | nu
 
 /** "API モード": an agent in the main process (src/main/builder/) writes, validates and installs the plugin itself. */
 export function ApiAgentPanel(): React.JSX.Element {
-  const config = useAppStore((s) => s.config)
-  const provider = config?.aiBuilder.apiProvider ?? 'openai'
+  const provider = useAppStore((s) => s.config?.aiBuilder.apiProvider) ?? 'openai'
   const [request, setRequest] = useState('')
   const [apiKey, setApiKey] = useState('')
   const [hasKey, setHasKey] = useState(false)

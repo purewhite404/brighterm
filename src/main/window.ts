@@ -1,6 +1,7 @@
 import { BaseWindow, WebContentsView, shell } from 'electron'
 import { join } from 'node:path'
 import { is } from './utils/env'
+import { perfMark } from './perf'
 
 /** Sends an event to the renderer (a no-op while there's no window). */
 export type Send = (channel: string, ...args: unknown[]) => void
@@ -60,7 +61,11 @@ export function createMainWindow(): void {
   })
   // BaseWindow has no 'ready-to-show' (that's BrowserWindow-only); show once the shell has painted.
   // E2E runs (BRIGHTERM_BACKGROUND=1) show it without taking the keyboard from whatever the user is typing in.
-  shellView.webContents.once('did-finish-load', () => (inBackground() ? mainWindow?.showInactive() : mainWindow?.show()))
+  shellView.webContents.once('did-finish-load', () => {
+    perfMark('main:shell-loaded')
+    if (inBackground()) mainWindow?.showInactive()
+    else mainWindow?.show()
+  })
 
   // Any link a tile or the shell wants to open externally goes to the OS browser.
   shellView.webContents.setWindowOpenHandler(({ url }) => {

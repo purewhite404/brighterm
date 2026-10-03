@@ -169,6 +169,32 @@ body,
   background: var(--bt-accent-soft);
 }
 
+/* While dragging, the handle is the guide line; the tiles resize on release. */
+.bt-splitter.bt-splitter--dragging {
+  z-index: 20;
+  will-change: transform;
+}
+
+.bt-splitter--row.bt-splitter--dragging {
+  background: linear-gradient(var(--bt-accent), var(--bt-accent)) center / 2px 100% no-repeat, var(--bt-accent-soft);
+}
+
+.bt-splitter--column.bt-splitter--dragging {
+  background: linear-gradient(var(--bt-accent), var(--bt-accent)) center / 100% 2px no-repeat, var(--bt-accent-soft);
+}
+
+body.bt-resizing-row,
+body.bt-resizing-row * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+body.bt-resizing-column,
+body.bt-resizing-column * {
+  cursor: row-resize !important;
+  user-select: none;
+}
+
 /* Drag & drop: a target over every other tile, with a hint for the zone under the pointer. */
 .bt-drop-target {
   position: absolute;

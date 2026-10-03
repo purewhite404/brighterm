@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { LayoutNode, Rect } from '@shared/types'
-import { computeRects, computeSplitters, type DropZone, type SplitterRect } from './layout'
+import { computeRects, computeSplitters, splitterOffset, splitterRatioAt, type DropZone, type SplitterRect } from './layout'
 import { useAppStore } from '../store/appStore'
 import { TileChrome } from './TileChrome'
 import { TileDragContext, TileRectContext, TILE_DRAG_MIME } from './tileContexts'
@@ -57,30 +57,64 @@ function DropTarget({ tileId }: { tileId: string }): React.JSX.Element {
   )
 }
 
+/**
+ * Dragging a splitter only moves the handle itself, as a guide line; the layout
+ * changes once, on release (Escape cancels). Resizing live re-laid out every
+ * tile, re-fitted every terminal and moved every web view on each pointer move.
+ * While dragging, web views are swapped for snapshots (as for a tile drag) so
+ * the line stays visible over them.
+ */
 function Splitter({ splitter, containerRef }: { splitter: SplitterRect; containerRef: React.RefObject<HTMLDivElement | null> }): React.JSX.Element {
   const resizeSplitAt = useAppStore((s) => s.resizeSplitAt)
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       const container = containerRef.current
-      if (!container) return
+      if (!container || e.button !== 0) return
       e.preventDefault()
+      const handle = e.currentTarget
+      const pointerId = e.pointerId
       const origin = container.getBoundingClientRect()
-      const { parent, direction, path } = splitter
+      const axis = splitter.direction === 'row' ? 'X' : 'Y'
+      let ratio: number | null = null
+      let done = false
+
+      // Capture: the moves keep coming even over a plugin's <iframe>.
+      handle.setPointerCapture(pointerId)
+      handle.classList.add('bt-splitter--dragging')
+      document.body.classList.add(`bt-resizing-${splitter.direction}`)
+      void window.api.overlay.show()
 
       const onMove = (move: PointerEvent): void => {
-        const ratio =
-          direction === 'row'
-            ? (move.clientX - origin.left - parent.x) / parent.width
-            : (move.clientY - origin.top - parent.y) / parent.height
-        resizeSplitAt(path, ratio)
+        ratio = splitterRatioAt(splitter, move.clientX - origin.left, move.clientY - origin.top)
+        handle.style.transform = `translate${axis}(${splitterOffset(splitter, ratio)}px)`
       }
-      const onUp = (): void => {
-        window.removeEventListener('pointermove', onMove)
-        window.removeEventListener('pointerup', onUp)
+      const finish = (commit: boolean): void => {
+        if (done) return
+        done = true
+        handle.removeEventListener('pointermove', onMove)
+        handle.removeEventListener('pointerup', onUp)
+        handle.removeEventListener('lostpointercapture', onCancel)
+        window.removeEventListener('keydown', onKey, true)
+        if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+        handle.classList.remove('bt-splitter--dragging')
+        handle.style.transform = ''
+        document.body.classList.remove(`bt-resizing-${splitter.direction}`)
+        void window.api.overlay.hide()
+        if (commit && ratio !== null) resizeSplitAt(splitter.path, ratio)
       }
-      window.addEventListener('pointermove', onMove)
-      window.addEventListener('pointerup', onUp)
+      const onUp = (): void => finish(true)
+      const onCancel = (): void => finish(false)
+      const onKey = (key: KeyboardEvent): void => {
+        if (key.key !== 'Escape') return
+        key.preventDefault()
+        key.stopPropagation()
+        finish(false)
+      }
+      handle.addEventListener('pointermove', onMove)
+      handle.addEventListener('pointerup', onUp)
+      handle.addEventListener('lostpointercapture', onCancel)
+      window.addEventListener('keydown', onKey, true)
     },
     [containerRef, splitter, resizeSplitAt]
   )
@@ -95,7 +129,7 @@ function Splitter({ splitter, containerRef }: { splitter: SplitterRect; containe
   )
 }
 
-export function TilingView({ layout }: { layout: LayoutNode | null }): React.JSX.Element {
+export const TilingView = memo(function TilingView({ layout }: { layout: LayoutNode | null }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
   const [draggingTileId, setDraggingTileId] = useState<string | null>(null)
@@ -113,14 +147,31 @@ export function TilingView({ layout }: { layout: LayoutNode | null }): React.JSX
     return () => observer.disconnect()
   }, [setViewportAspect])
 
+  const hasSize = size.width > 0
+  useEffect(() => {
+    if (hasSize) performance.mark('shell:tiles-rendered') // startup timeline (tests/e2e)
+  }, [hasSize])
+
   const area = useMemo<Rect>(() => ({ x: 0, y: 0, width: size.width, height: size.height }), [size])
   const tileRects = useMemo(() => computeRects(layout, area), [layout, area])
   const splitters = useMemo(() => computeSplitters(layout, area, SPLITTER_THICKNESS), [layout, area])
 
   // Stable DOM order (by id), regardless of where each tile sits: moving an
-  // <iframe> element in the DOM would reload it.
+  // <iframe> element in the DOM would reload it. `inner` is computed here (not
+  // in render) so each tile's TileRectContext value only changes with its rect.
   const orderedTiles = useMemo(
-    () => [...tileRects].sort((a, b) => (a.tileId < b.tileId ? -1 : a.tileId > b.tileId ? 1 : 0)),
+    () =>
+      [...tileRects]
+        .sort((a, b) => (a.tileId < b.tileId ? -1 : a.tileId > b.tileId ? 1 : 0))
+        .map(({ tileId, rect }) => ({
+          tileId,
+          inner: {
+            x: rect.x + GAP,
+            y: rect.y + GAP,
+            width: Math.max(0, rect.width - GAP * 2),
+            height: Math.max(0, rect.height - GAP * 2)
+          } satisfies Rect
+        })),
     [tileRects]
   )
 
@@ -149,13 +200,7 @@ export function TilingView({ layout }: { layout: LayoutNode | null }): React.JSX
       )}
       <TileDragContext.Provider value={dragContext}>
         {size.width > 0 &&
-          orderedTiles.map(({ tileId, rect }) => {
-            const inner: Rect = {
-              x: rect.x + GAP,
-              y: rect.y + GAP,
-              width: Math.max(0, rect.width - GAP * 2),
-              height: Math.max(0, rect.height - GAP * 2)
-            }
+          orderedTiles.map(({ tileId, inner }) => {
             return (
               <div
                 key={tileId}
@@ -174,4 +219,4 @@ export function TilingView({ layout }: { layout: LayoutNode | null }): React.JSX
         splitters.map((s) => <Splitter key={s.path.join('') || 'root'} splitter={s} containerRef={containerRef} />)}
     </div>
   )
-}
+})

@@ -1,4 +1,4 @@
-import { app } from 'electron'
+import { app, ipcMain } from 'electron'
 import { join } from 'node:path'
 import { IPC } from '@shared/ipc'
 import { ConfigStore } from './configStore'
@@ -11,6 +11,7 @@ import { registerViewsIpc } from './views/ipc'
 import { startMemoryLoop } from './views/memoryLoop'
 import { PtyManager } from './terminal/ptyManager'
 import { registerTerminalIpc } from './terminal/ipc'
+import { terminalsToPrewarm } from './terminal/prewarm'
 import { FsWatchRegistry } from './files/fsService'
 import { registerFilesIpc } from './files/ipc'
 import { registerSysmonIpc } from './sysmon/ipc'
@@ -25,6 +26,10 @@ import { GoogleConnector } from './google/google'
 import { GoogleCredentialsStore } from './google/googleCredentialsStore'
 import { registerGoogleIpc } from './google/ipc'
 import { registerBuilderIpc } from './builder/ipc'
+import { perfMark, profileStartup, timeIpcHandlers, traceStartup } from './perf'
+
+perfMark('main:modules-loaded')
+profileStartup()
 
 /*
  * Boots the app: what has to happen before app.ready, then every service,
@@ -63,8 +68,11 @@ function boot(): void {
   let viewManager: ViewManager | undefined
   let ptyManager: PtyManager | undefined
   let stopGooglePolling: (() => void) | undefined
+  let disposeSysmon: (() => void) | undefined
 
   app.whenReady().then(() => {
+    perfMark('main:app-ready')
+    traceStartup()
     applyWebTheme(configStore.get().appearance.webTheme)
     const userData = app.getPath('userData')
 
@@ -74,6 +82,7 @@ function boot(): void {
     // (out/main/index.cjs) and packaged (app.asar/out/main/index.cjs) builds —
     // see protocol.ts's identical reasoning for packages/sdk.
     const bundledPluginIds = installBundledPlugins(pluginHost, join(__dirname, '../../plugins-builtin'), ['slack'])
+    perfMark('main:bundled-plugins-installed')
     const hostApiBridge = new PluginHostApiBridge(
       pluginHost,
       join(userData, 'plugin-data'),
@@ -101,6 +110,7 @@ function boot(): void {
     viewManager = views
     ptyManager = ptys
 
+    timeIpcHandlers(ipcMain)
     registerAppIpc(configStore, startupWebTheme)
     registerViewsIpc(views, (tileId) => {
       ptys.kill(tileId)
@@ -108,13 +118,25 @@ function boot(): void {
     })
     registerTerminalIpc(ptys)
     registerFilesIpc(fsWatchers, send)
-    registerSysmonIpc()
+    disposeSysmon = registerSysmonIpc()
     registerSettingsIpc(etcService)
     registerPluginsIpc(pluginHost, hostApiBridge, send, bundledPluginIds)
     const google = registerGoogleIpc(googleConnector, send)
     registerBuilderIpc({ configStore, secretStore, pluginHost, send })
 
+    perfMark('main:services-ready')
     createMainWindow()
+    perfMark('main:window-created')
+    // Start the first workspace's shells now, while the window loads: PowerShell needs
+    // ~0.7 s to show its prompt. The tile attaches to the running session (as when a
+    // workspace is shown again) and resizes it to its real size.
+    for (const { tileId, shellId, cwd } of terminalsToPrewarm(configStore.get())) {
+      try {
+        ptys.create(tileId, { shellId, cwd, cols: 100, rows: 30 })
+      } catch (err) {
+        console.error(`[terminal] could not start the shell for ${tileId} early:`, err)
+      }
+    }
     startMemoryLoop({ viewManager: views, suspendAfterMs: () => configStore.get().suspendAfterMs, shellProcessId, send })
     google.startPolling()
     stopGooglePolling = google.stopPolling
@@ -136,5 +158,6 @@ function boot(): void {
     fsWatchers.stopAll()
     viewManager?.disposeAll()
     stopGooglePolling?.()
+    disposeSysmon?.()
   })
 }

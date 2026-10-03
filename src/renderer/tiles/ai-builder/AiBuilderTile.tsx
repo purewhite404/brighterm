@@ -38,7 +38,7 @@ function ScopeNote(): React.JSX.Element {
 }
 
 export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element {
-  const config = useAppStore((s) => s.config)
+  const aiBuilder = useAppStore((s) => s.config?.aiBuilder)
   const updateConfig = useAppStore((s) => s.updateConfig)
   const addTile = useAppStore((s) => s.addTile)
   const plugins = usePluginList()
@@ -49,12 +49,12 @@ export function AiBuilderTile({ tileId }: { tileId: string }): React.JSX.Element
   const [installResult, setInstallResult] = useState<PluginInstallResult | null>(null)
   const [busy, setBusy] = useState(false)
 
-  const mode = config?.aiBuilder.mode ?? 'web-bridge'
-  const chatUrl = config?.aiBuilder.webBridgeUrl ?? 'https://chatgpt.com/'
+  const mode = aiBuilder?.mode ?? 'web-bridge'
+  const chatUrl = aiBuilder?.webBridgeUrl ?? 'https://chatgpt.com/'
 
   const setMode = (next: 'web-bridge' | 'api-agent'): void => {
-    if (!config) return
-    updateConfig({ aiBuilder: { ...config.aiBuilder, mode: next } })
+    if (!aiBuilder) return
+    updateConfig({ aiBuilder: { ...aiBuilder, mode: next } })
   }
 
   // Step 3 checks whatever is in step 2, shortly after it stops changing.

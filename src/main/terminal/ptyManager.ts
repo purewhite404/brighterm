@@ -3,6 +3,7 @@ import { existsSync, lstatSync } from 'node:fs'
 import path from 'node:path'
 import * as pty from 'node-pty'
 import type { ShellOption } from '@shared/apiTypes'
+import { perfMark } from '../perf'
 
 /**
  * Owns every terminal (node-pty) session, one per Terminal tile instance.
@@ -163,9 +164,11 @@ export class PtyManager {
       return { backlog: existing.backlog }
     }
 
+    perfMark(`pty-create-received:${tileId}`)
     const shells = listAvailableShells()
     const chosen = (opts.shellId ? shells.find((s) => s.id === opts.shellId) : undefined) ?? defaultShell()
 
+    perfMark(`pty-spawn:${tileId}`)
     const proc = pty.spawn(chosen.path, chosen.args, {
       name: 'xterm-256color',
       cols: opts.cols,
@@ -174,8 +177,10 @@ export class PtyManager {
       env: shellEnv(chosen)
     })
 
+    perfMark(`pty-spawned:${tileId}`)
     const session: PtySession = { proc, backlog: '' }
     proc.onData((data) => {
+      if (session.backlog === '') perfMark(`pty-first-output:${tileId}`)
       session.backlog = (session.backlog + data).slice(-BACKLOG_LIMIT)
       this.options.onData(tileId, data)
     })

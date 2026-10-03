@@ -9,7 +9,8 @@ import { titledTileId } from './tiles/shared/subViews'
 export function App(): React.JSX.Element {
   const loaded = useAppStore((s) => s.loaded)
   const load = useAppStore((s) => s.load)
-  const workspace = useAppStore((s) => selectActiveWorkspace(s))
+  // Only the layout: the workspace object changes whenever any tile saves its config (a Browser's URL…).
+  const layout = useAppStore((s) => selectActiveWorkspace(s)?.layout ?? null)
   const setTileRuntime = useAppStore((s) => s.setTileRuntime)
   const setMemorySnapshot = useAppStore((s) => s.setMemorySnapshot)
   const publishHqCard = useAppStore((s) => s.publishHqCard)
@@ -54,7 +55,7 @@ export function App(): React.JSX.Element {
     <div className="bt-app">
       <Dock />
       <div className="bt-app__main">
-        <TilingView layout={workspace?.layout ?? null} />
+        <TilingView layout={layout} />
         <StatusBar />
       </div>
       <CommandPalette />

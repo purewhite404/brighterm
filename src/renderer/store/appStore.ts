@@ -80,6 +80,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   load: async () => {
     const config = await window.api.config.get()
+    performance.mark('shell:config-loaded')
     set({ config, loaded: true })
   },
 

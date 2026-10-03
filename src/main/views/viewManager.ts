@@ -1,5 +1,6 @@
 import { BaseWindow, WebContentsView, session } from 'electron'
 import type { Rect } from '@shared/types'
+import { perfMark } from '../perf'
 
 /**
  * Owns every WebContentsView backing a "web" or "plugin" tile: creation,
@@ -88,6 +89,9 @@ function desktopUserAgent(originalUA: string): string {
 export class ViewManager {
   private readonly views = new Map<string, ManagedView>()
   private readonly options: ViewManagerOptions
+  /** Bumped by every overlay show/hide: a capture that finishes after the overlay went away must not hide its view. */
+  private overlayGeneration = 0
+  private overlayActive = false
 
   constructor(options: ViewManagerOptions) {
     this.options = options
@@ -165,6 +169,7 @@ export class ViewManager {
       })
     }
     view.webContents.on('did-navigate', reportNavigation)
+    view.webContents.once('did-finish-load', () => perfMark(`view-loaded:${entry.tileId}`))
     view.webContents.on('did-navigate-in-page', reportNavigation)
 
     // Links that try to open a new window load in the same tile instead.
@@ -214,7 +219,8 @@ export class ViewManager {
     if (!entry) return
     entry.lastBounds = rect
     entry.hidden = false
-    if (entry.view) {
+    // Under an overlay the snapshot stands in for the view; it comes back at lastBounds on hide.
+    if (entry.view && !(this.overlayActive && entry.snapshot)) {
       entry.view.setBounds(toIntRect(rect))
     }
   }
@@ -308,11 +314,17 @@ export class ViewManager {
 
   /** Hide every mounted view behind a snapshot, e.g. while the command palette is open. */
   async hideAllForOverlay(): Promise<void> {
-    for (const entry of this.views.values()) {
+    const generation = ++this.overlayGeneration
+    this.overlayActive = true
+    for (const entry of [...this.views.values()]) {
+      if (generation !== this.overlayGeneration) return
       if (!entry.view || entry.suspended || entry.hidden) continue
       try {
         const image = await entry.view.webContents.capturePage()
-        entry.snapshot = image.toDataURL()
+        // Released already (e.g. a quick click on a splitter): leave the view where it is.
+        if (generation !== this.overlayGeneration || !entry.view) return
+        // JPEG: encoding is several times faster than PNG and it's only shown for a moment.
+        entry.snapshot = `data:image/jpeg;base64,${image.toJPEG(90).toString('base64')}`
         this.options.onSnapshotUpdated?.(entry.tileId, entry.snapshot)
         entry.view.setBounds({ x: 0, y: 0, width: 0, height: 0 })
       } catch {
@@ -322,6 +334,8 @@ export class ViewManager {
   }
 
   showAllAfterOverlay(): void {
+    this.overlayGeneration++
+    this.overlayActive = false
     for (const entry of this.views.values()) {
       if (!entry.view || entry.suspended || entry.hidden || !entry.lastBounds) continue
       entry.view.setBounds(toIntRect(entry.lastBounds))

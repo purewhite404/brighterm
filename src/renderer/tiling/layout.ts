@@ -294,6 +294,24 @@ export function computeSplitters(node: LayoutNode | null, rect: Rect, thickness:
   return result
 }
 
+/**
+ * The ratio a splitter drag ends at for a pointer at (x, y) in tiling-area
+ * coordinates — clamped exactly like resizeAt, so the guide line stops where the
+ * split will.
+ */
+export function splitterRatioAt(splitter: SplitterRect, x: number, y: number): number {
+  const { parent, direction } = splitter
+  return clampRatio(direction === 'row' ? (x - parent.x) / parent.width : (y - parent.y) / parent.height)
+}
+
+/** How far (px, along the split's axis) the handle moves when the split's ratio becomes `ratio`. */
+export function splitterOffset(splitter: SplitterRect, ratio: number): number {
+  const { parent, direction, rect } = splitter
+  return direction === 'row'
+    ? parent.x + parent.width * ratio - (rect.x + rect.width / 2)
+    : parent.y + parent.height * ratio - (rect.y + rect.height / 2)
+}
+
 /** Count how many leaves are in the tree. */
 export function countTiles(node: LayoutNode | null): number {
   if (node === null) return 0
