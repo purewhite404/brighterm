@@ -70,6 +70,8 @@ export interface BrightermFs {
   readFile(handle: BrightermFolderHandle, relativePath: string): Promise<string>
   writeFile(handle: BrightermFolderHandle, relativePath: string, content: string): Promise<void>
   deleteFile(handle: BrightermFolderHandle, relativePath: string): Promise<void>
+  /** Puts the file's full path on the user's clipboard (the plugin itself never sees the path). */
+  copyPath(handle: BrightermFolderHandle, relativePath: string): Promise<void>
 }
 
 export interface BrightermNet {

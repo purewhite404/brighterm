@@ -84,7 +84,7 @@
   引数と戻り値は、この仕様書の後ろに付いている `host-api.d.ts` のとおりにしてくだ
   さい。**そこにない関数は存在しません。主なもの:
   - `window.brighterm.storage.get/set/remove/keys(...)`
-  - `window.brighterm.fs.pickFolder() / listFiles() / fileUrl() / readFile() / writeFile() / deleteFile()`
+  - `window.brighterm.fs.pickFolder() / listFiles() / fileUrl() / readFile() / writeFile() / deleteFile() / copyPath()`
   - `window.brighterm.fs.showFolderBar(folder) / onFolderBarChange(cb)` — タイル上部のフォルダのパスバー
   - `window.brighterm.net.fetch(url, init)` — manifest で宣言したドメインのみ
   - `window.brighterm.hq.publishCard({...}) / clearCard(id)`

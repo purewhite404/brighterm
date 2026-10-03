@@ -80,7 +80,8 @@ export function generateBridgeScript(pluginId: string): string {
       fileUrl: (handle, relativePath) => call('fs.fileUrl', [handle, relativePath]),
       readFile: (handle, relativePath) => call('fs.readFile', [handle, relativePath]),
       writeFile: (handle, relativePath, content) => call('fs.writeFile', [handle, relativePath, content]),
-      deleteFile: (handle, relativePath) => call('fs.deleteFile', [handle, relativePath])
+      deleteFile: (handle, relativePath) => call('fs.deleteFile', [handle, relativePath]),
+      copyPath: (handle, relativePath) => call('fs.copyPath', [handle, relativePath])
     },
     net: {
       fetch: (url, init) => call('net.fetch', [url, init])

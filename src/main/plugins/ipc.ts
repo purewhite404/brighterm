@@ -1,5 +1,5 @@
 import { homedir } from 'node:os'
-import { ipcMain } from 'electron'
+import { clipboard, ipcMain } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { Card } from '@shared/types'
 import type { Send } from '../window'
@@ -87,6 +87,9 @@ async function callHostApi(
       return hostApiBridge.writeFile(pluginId, handleId(args[0]), args[1], args[2] as string)
     case 'fs.deleteFile':
       return hostApiBridge.deleteFile(pluginId, handleId(args[0]), args[1])
+    case 'fs.copyPath':
+      clipboard.writeText(hostApiBridge.resolveFullPath(pluginId, handleId(args[0]), args[1]))
+      return
     case 'net.fetch':
       return hostApiBridge.netFetch(
         pluginId,

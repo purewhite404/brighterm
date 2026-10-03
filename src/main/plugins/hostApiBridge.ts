@@ -259,6 +259,12 @@ export class PluginHostApiBridge {
     unlinkSync(this.resolveWithinFolder(root, relativePath))
   }
 
+  /** Full path of a file the plugin may access (for the user's clipboard — the plugin never sees the path itself). */
+  resolveFullPath(pluginId: string, handleId: string, relativePath: unknown): string {
+    this.requirePermission(pluginId, 'folders')
+    return this.resolveWithinFolder(this.resolveHandle(pluginId, handleId), relativePath)
+  }
+
   // ---- network (declared domains only) ----
 
   async netFetch(

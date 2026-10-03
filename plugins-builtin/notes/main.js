@@ -166,12 +166,162 @@ function renderFileList() {
     const row = document.createElement('button')
     row.className = 'file-row' + (file.name === currentFile ? ' file-row--active' : '')
     row.textContent = displayName(file.name)
+    row.dataset.name = file.name
     row.addEventListener('click', () => {
       closeOverlaySidebar()
       openFile(file.name)
     })
+    row.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      showMenu(e.clientX, e.clientY, file)
+    })
     fileListEl.appendChild(row)
   }
+}
+
+// ---- Right-click menu on the file list: copy / cut / paste / copy path / rename / delete.
+let fileClipboard = null // { name, cut }
+let menuEl = null
+
+function closeMenu() {
+  if (menuEl) menuEl.remove()
+  menuEl = null
+}
+document.addEventListener('click', closeMenu)
+document.addEventListener('keydown', (e) => e.key === 'Escape' && closeMenu())
+window.addEventListener('blur', closeMenu)
+fileListEl.addEventListener('scroll', closeMenu)
+fileListEl.addEventListener('contextmenu', (e) => {
+  if (e.target === fileListEl && fileClipboard) {
+    e.preventDefault()
+    showMenu(e.clientX, e.clientY, null)
+  }
+})
+
+function showMenu(x, y, file) {
+  closeMenu()
+  const items = []
+  if (file) {
+    items.push(['コピー', () => (fileClipboard = { name: file.name, cut: false })])
+    items.push(['切り取り', () => (fileClipboard = { name: file.name, cut: true })])
+  }
+  if (fileClipboard) items.push(['貼り付け', pasteFile])
+  if (file) {
+    items.push(['パスのコピー', () => window.brighterm.fs.copyPath(folderHandle, file.name)])
+    items.push(['名前の変更', () => renameFile(file)])
+    items.push(['削除', () => deleteNote(file)])
+  }
+  menuEl = document.createElement('div')
+  menuEl.className = 'ctx-menu'
+  for (const [label, action] of items) {
+    const b = document.createElement('button')
+    b.textContent = label
+    b.addEventListener('click', async (e) => {
+      e.stopPropagation()
+      closeMenu()
+      try {
+        await action()
+      } catch (err) {
+        alert(String(err && err.message ? err.message : err))
+      }
+    })
+    menuEl.appendChild(b)
+  }
+  document.body.appendChild(menuEl)
+  menuEl.style.left = Math.max(0, Math.min(x, window.innerWidth - menuEl.offsetWidth - 4)) + 'px'
+  menuEl.style.top = Math.max(0, Math.min(y, window.innerHeight - menuEl.offsetHeight - 4)) + 'px'
+}
+
+/** "a.md" → "a (2).md" … the first name not taken yet. */
+function freeName(name) {
+  const dot = name.lastIndexOf('.')
+  const base = dot > 0 ? name.slice(0, dot) : name
+  const ext = dot > 0 ? name.slice(dot) : ''
+  let n = 2
+  let candidate = name
+  while (files.some((f) => f.name === candidate)) candidate = `${base} (${n++})${ext}`
+  return candidate
+}
+
+async function pasteFile() {
+  if (!fileClipboard) return
+  const { name, cut } = fileClipboard
+  await flushSave()
+  if (cut && files.some((f) => f.name === name)) return // cut then paste into the same folder: nothing moves
+  const content = await window.brighterm.fs.readFile(folderHandle, name)
+  const newName = freeName(name)
+  await window.brighterm.fs.writeFile(folderHandle, newName, content)
+  if (cut) {
+    await window.brighterm.fs.deleteFile(folderHandle, name)
+    fileClipboard = null
+  }
+  await refreshFileList()
+}
+
+/** Rename in place: the row turns into a text box (Enter = apply, Esc = cancel). */
+function askName(file) {
+  return new Promise((resolve) => {
+    const row = [...fileListEl.children].find((el) => el.dataset.name === file.name)
+    if (!row) return resolve(null)
+    const box = document.createElement('input')
+    box.className = 'file-rename'
+    box.value = displayName(file.name)
+    row.replaceWith(box)
+    box.focus()
+    box.select()
+    let done = false
+    const finish = (value) => {
+      if (done) return
+      done = true
+      resolve(value)
+    }
+    box.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') finish(box.value)
+      if (e.key === 'Escape') finish(null)
+    })
+    box.addEventListener('blur', () => finish(null))
+  })
+}
+
+async function renameFile(file) {
+  const input = await askName(file)
+  if (input === null) {
+    renderFileList()
+    return
+  }
+  const title = input.trim().replace(/[\\/:*?"<>|]/g, '_')
+  if (!title) return
+  const newName = isMarkdown(file.name) ? `${title}.md` : title
+  if (newName === file.name) return
+  if (files.some((f) => f.name === newName)) throw new Error(`同じ名前のファイルがあります: ${newName}`)
+  await flushSave()
+  const content = await window.brighterm.fs.readFile(folderHandle, file.name)
+  await window.brighterm.fs.writeFile(folderHandle, newName, content)
+  await window.brighterm.fs.deleteFile(folderHandle, file.name)
+  if (currentFile === file.name) {
+    currentFile = newName
+    titleInput.value = displayName(newName)
+  }
+  if (extraFile === file.name) extraFile = newName
+  if (fileClipboard && fileClipboard.name === file.name) fileClipboard.name = newName
+  await refreshFileList()
+}
+
+async function deleteNote(file) {
+  if (!confirm(`「${displayName(file.name)}」を削除しますか？`)) return
+  if (currentFile === file.name) {
+    if (saveTimer) {
+      clearTimeout(saveTimer)
+      saveTimer = null
+    }
+    currentFile = null
+    titleInput.value = ''
+    contentArea.value = ''
+  }
+  await window.brighterm.fs.deleteFile(folderHandle, file.name)
+  if (extraFile === file.name) extraFile = null
+  if (fileClipboard && fileClipboard.name === file.name) fileClipboard = null
+  await refreshFileList()
 }
 
 async function openFile(name) {
