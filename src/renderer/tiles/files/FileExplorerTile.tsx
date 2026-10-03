@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import type { DirEntry, FileInspection } from '@shared/apiTypes'
 import { useAppStore, selectActiveWorkspace } from '../../store/appStore'
+import type { ColumnKey } from './fileView'
 import { Icon } from '../../ui/Icon'
 import { builtinTile } from '../catalog'
 import type { OpenFileRequest } from '../plugin/PluginFrame'
@@ -28,20 +29,34 @@ function layoutFor(width: number, height: number): FilesLayout {
 }
 const NOTES_PLUGIN_ID = 'notes'
 
+/** Would the tree show the same columns at both widths? */
+function sameColumns(columns: Record<ColumnKey, boolean>, widthA: number, widthB: number): boolean {
+  return JSON.stringify(fitColumns(columns, widthA - 40)) === JSON.stringify(fitColumns(columns, widthB - 40))
+}
+
 export function FileExplorerTile({ tileId }: { tileId: string }): React.JSX.Element {
   const [config, updateConfig] = useTileConfig<{
     rootPath: string
     expandedPaths: string[]
     view: Partial<FileViewOptions>
   }>(tileId)
-  const workspace = useAppStore((s) => selectActiveWorkspace(s))
   const addTile = useAppStore((s) => s.addTile)
   const updateTileConfig = useAppStore((s) => s.updateTileConfig)
   const view = resolveView(config.view)
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   const mainRef = useRef<HTMLDivElement | null>(null)
+  // The tree's width, but only updated when it changes which columns fit: storing every
+  // pixel re-rendered the whole tree on each frame of a window resize.
   const [mainWidth, setMainWidth] = useState(0)
+  const viewRef = useRef(view)
+  viewRef.current = view
+  const measureMain = (): void => {
+    const main = mainRef.current
+    if (!main) return
+    const width = main.clientWidth
+    setMainWidth((prev) => (prev > 0 && sameColumns(viewRef.current.columns, prev, width) ? prev : width))
+  }
   const [layout, setLayout] = useState<FilesLayout>('wide')
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [root, setRoot] = useState<DirEntry | null>(null)
@@ -93,13 +108,17 @@ export function FileExplorerTile({ tileId }: { tileId: string }): React.JSX.Elem
     const observer = new ResizeObserver(() => setLayout(layoutFor(el.clientWidth, el.clientHeight)))
     observer.observe(el)
     const main = mainRef.current
-    const mainObserver = new ResizeObserver(() => main && setMainWidth(main.clientWidth))
+    const mainObserver = new ResizeObserver(measureMain)
     if (main) mainObserver.observe(main)
     return () => {
       observer.disconnect()
       mainObserver.disconnect()
     }
   }, [root])
+
+  // Other columns chosen: what fits at the current width may differ.
+  const columnsKey = JSON.stringify(view.columns)
+  useEffect(measureMain, [columnsKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const setView = (next: FileViewOptions): void => updateConfig({ view: next })
 
@@ -119,6 +138,8 @@ export function FileExplorerTile({ tileId }: { tileId: string }): React.JSX.Elem
       name: entry.path.slice(cut + 1),
       nonce: Date.now()
     }
+    // Read at click time: selecting the workspace re-rendered this tile whenever any tile saved its config.
+    const workspace = selectActiveWorkspace(useAppStore.getState())
     const existing = Object.values(workspace?.tiles ?? {}).find(
       (t) => t.kind === 'plugin' && (t.config as { pluginId?: string } | undefined)?.pluginId === NOTES_PLUGIN_ID
     )

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PluginHost } from './pluginHost'
@@ -171,5 +171,30 @@ describe('PluginHost', () => {
     host.install(appPlugin())
     const reopened = new PluginHost(dir)
     expect(reopened.list()).toHaveLength(1)
+  })
+
+  it('keeps the list in memory (read once), and shows its own changes at once', () => {
+    host.install(appPlugin())
+    expect(host.list()).toHaveLength(1)
+    // Every Host API call checks the plugin: the list comes from memory, not installed.json.
+    writeFileSync(join(dir, 'installed.json'), JSON.stringify({ plugins: {} }))
+    expect(host.list()).toHaveLength(1)
+    // A caller changing the returned array doesn't change the host's.
+    host.list().pop()
+    expect(host.getListItem('photo-viewer')).not.toBeNull()
+    // A new host (next launch) reads the disk.
+    expect(new PluginHost(dir).list()).toEqual([])
+  })
+
+  it('drops the cached list on enable / rollback / uninstall', () => {
+    host.install(appPlugin())
+    host.install(appPlugin({ version: '1.1.0' }))
+    expect(host.getListItem('photo-viewer')?.manifest.version).toBe('1.1.0')
+    host.setEnabled('photo-viewer', false)
+    expect(host.getListItem('photo-viewer')?.enabled).toBe(false)
+    host.rollback('photo-viewer', '1.0.0')
+    expect(host.getListItem('photo-viewer')?.manifest.version).toBe('1.0.0')
+    host.uninstall('photo-viewer')
+    expect(host.list()).toEqual([])
   })
 })

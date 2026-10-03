@@ -68,3 +68,25 @@ export function traceStartup(ms = 1200): void {
     })
     .then(() => setTimeout(() => void contentTracing.stopRecording(file), ms))
 }
+
+/** For tests (app.evaluate can't require): globalThis.__brightermProfiler.start() / .stop() → a CPU profile of main. */
+if (enabled) {
+  let session: Session | null = null
+  const post = <T>(method: string, params: object = {}): Promise<T> =>
+    new Promise((resolve, reject) => session!.post(method, params, (err, res) => (err ? reject(err) : resolve(res as T))))
+  ;(globalThis as { __brightermProfiler?: unknown }).__brightermProfiler = {
+    async start(): Promise<void> {
+      session = new Session()
+      session.connect()
+      await post('Profiler.enable')
+      await post('Profiler.setSamplingInterval', { interval: 200 })
+      await post('Profiler.start')
+    },
+    async stop(): Promise<unknown> {
+      const { profile } = await post<{ profile: unknown }>('Profiler.stop')
+      session?.disconnect()
+      session = null
+      return profile
+    }
+  }
+}

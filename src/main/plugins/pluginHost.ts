@@ -35,6 +35,13 @@ function emptyRegistry(): Registry {
 
 export class PluginHost {
   private readonly registryPath: string
+  /**
+   * list() as last read from disk. Every Host API call and every plugin-app:// request
+   * checks the plugin through it, so re-reading installed.json and each manifest.json
+   * every time was disk + JSON work on the main process per call (per image in a photo
+   * viewer). Only this class writes them; writeRegistry() drops the cache.
+   */
+  private listCache: PluginListItem[] | null = null
 
   constructor(private readonly pluginsRoot: string) {
     mkdirSync(pluginsRoot, { recursive: true })
@@ -52,6 +59,7 @@ export class PluginHost {
 
   private writeRegistry(registry: Registry): void {
     writeFileSync(this.registryPath, JSON.stringify(registry, null, 2), 'utf-8')
+    this.listCache = null
   }
 
   private versionDir(id: string, version: string): string {
@@ -147,6 +155,11 @@ export class PluginHost {
   }
 
   list(): PluginListItem[] {
+    this.listCache ??= this.readList()
+    return [...this.listCache]
+  }
+
+  private readList(): PluginListItem[] {
     const registry = this.readRegistry()
     const items: PluginListItem[] = []
     for (const [id, entry] of Object.entries(registry.plugins)) {
@@ -194,7 +207,7 @@ export class PluginHost {
   uninstall(id: string): void {
     const registry = this.readRegistry()
     delete registry.plugins[id]
-    this.writeRegistry(registry)
     rmSync(join(this.pluginsRoot, id), { recursive: true, force: true })
+    this.writeRegistry(registry)
   }
 }

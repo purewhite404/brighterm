@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, join, sep } from 'node:path'
 import { PluginHost } from './pluginHost'
@@ -94,6 +94,20 @@ describe('PluginHostApiBridge', () => {
 
       const reopened = new PluginHostApiBridge(pluginHost, dataDir, publishedCards.push.bind(publishedCards), () => {})
       expect(reopened.storageGet('persistent', 'x')).toBe('hello')
+    })
+
+    it('reads storage.json once and keeps it in memory; changes are written through to disk', () => {
+      pluginHost.install(pluginFiles('cached', [{ type: 'storage' }]))
+      bridge.storageSet('cached', 'a', 1)
+      const file = join(dataDir, 'cached', 'storage.json')
+      expect(JSON.parse(readFileSync(file, 'utf-8'))).toEqual({ a: 1 })
+      writeFileSync(file, JSON.stringify({ a: 'changed behind its back' }))
+      expect(bridge.storageGet('cached', 'a')).toBe(1)
+      bridge.storageSet('cached', 'b', 2)
+      expect(JSON.parse(readFileSync(file, 'utf-8'))).toEqual({ a: 1, b: 2 })
+      bridge.storageRemove('cached', 'a')
+      expect(JSON.parse(readFileSync(file, 'utf-8'))).toEqual({ b: 2 })
+      expect(bridge.storageKeys('cached')).toEqual(['b'])
     })
   })
 

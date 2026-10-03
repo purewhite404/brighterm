@@ -51,10 +51,32 @@ export class PluginHostApiBridge {
     }
   }
 
+  /*
+   * storage.json and folders.json are read once per plugin and then kept in memory
+   * (written through on change): every fs.* call resolves its folder handle, and
+   * re-reading + parsing the file each time was main-process work per call.
+   * Only this class writes these files.
+   */
+  private readonly storageCache = new Map<string, Record<string, unknown>>()
+  private readonly foldersCache = new Map<string, FolderRegistry>()
+  private readonly createdDirs = new Set<string>()
+
   private pluginDir(pluginId: string): string {
     const dir = join(this.dataRoot, pluginId)
-    mkdirSync(dir, { recursive: true })
+    if (!this.createdDirs.has(dir)) {
+      mkdirSync(dir, { recursive: true })
+      this.createdDirs.add(dir)
+    }
     return dir
+  }
+
+  private readJson<T extends object>(path: string): T {
+    if (!existsSync(path)) return {} as T
+    try {
+      return JSON.parse(readFileSync(path, 'utf-8')) as T
+    } catch {
+      return {} as T
+    }
   }
 
   // ---- storage ----
@@ -63,18 +85,19 @@ export class PluginHostApiBridge {
     return join(this.pluginDir(pluginId), 'storage.json')
   }
 
+  /** A copy: callers change it and hand it to writeStorage. */
   private readStorage(pluginId: string): Record<string, unknown> {
-    const path = this.storagePath(pluginId)
-    if (!existsSync(path)) return {}
-    try {
-      return JSON.parse(readFileSync(path, 'utf-8'))
-    } catch {
-      return {}
+    let data = this.storageCache.get(pluginId)
+    if (!data) {
+      data = this.readJson<Record<string, unknown>>(this.storagePath(pluginId))
+      this.storageCache.set(pluginId, data)
     }
+    return { ...data }
   }
 
   private writeStorage(pluginId: string, data: Record<string, unknown>): void {
     writeFileSync(this.storagePath(pluginId), JSON.stringify(data, null, 2), 'utf-8')
+    this.storageCache.set(pluginId, data)
   }
 
   storageGet(pluginId: string, key: string): unknown {
@@ -107,14 +130,19 @@ export class PluginHostApiBridge {
     return join(this.pluginDir(pluginId), 'folders.json')
   }
 
+  /** A copy: callers change it and hand it to writeFolders. */
   private readFolders(pluginId: string): FolderRegistry {
-    const path = this.foldersPath(pluginId)
-    if (!existsSync(path)) return {}
-    try {
-      return JSON.parse(readFileSync(path, 'utf-8'))
-    } catch {
-      return {}
+    let folders = this.foldersCache.get(pluginId)
+    if (!folders) {
+      folders = this.readJson<FolderRegistry>(this.foldersPath(pluginId))
+      this.foldersCache.set(pluginId, folders)
     }
+    return { ...folders }
+  }
+
+  private writeFolders(pluginId: string, folders: FolderRegistry): void {
+    writeFileSync(this.foldersPath(pluginId), JSON.stringify(folders, null, 2), 'utf-8')
+    this.foldersCache.set(pluginId, folders)
   }
 
   private resolveHandle(pluginId: string, handleId: string): string {
@@ -152,7 +180,7 @@ export class PluginHostApiBridge {
     const id = `folder-${randomUUID()}`
     const folders = this.readFolders(pluginId)
     folders[id] = { path, label }
-    writeFileSync(this.foldersPath(pluginId), JSON.stringify(folders, null, 2), 'utf-8')
+    this.writeFolders(pluginId, folders)
     return { id, label }
   }
 
@@ -184,7 +212,7 @@ export class PluginHostApiBridge {
     const label = path.split(/[\\/]/).pop() || path
     const id = `folder-${randomUUID()}`
     folders[id] = { path, label }
-    writeFileSync(this.foldersPath(pluginId), JSON.stringify(folders, null, 2), 'utf-8')
+    this.writeFolders(pluginId, folders)
     return { id, label }
   }
 

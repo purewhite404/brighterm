@@ -4,6 +4,7 @@ import path from 'node:path'
 import * as pty from 'node-pty'
 import type { ShellOption } from '@shared/apiTypes'
 import { perfMark } from '../perf'
+import { PtyOutput } from './ptyOutput'
 
 /**
  * Owns every terminal (node-pty) session, one per Terminal tile instance.
@@ -129,12 +130,14 @@ export function shellEnv(shell: ShellOption, base: NodeJS.ProcessEnv = process.e
 
 interface PtySession {
   proc: pty.IPty
-  /** Recent output, replayed to a terminal view that attaches after it was emitted. */
-  backlog: string
+  /** Batches output for the renderer and keeps the recent part, replayed to a view that attaches later. */
+  output: PtyOutput
 }
 
 /** How much recent output to keep per session for replay (characters). */
 const BACKLOG_LIMIT = 200_000
+/** Output is sent in batches this long after its first chunk (a typed key's echo too: 5 ms isn't noticeable). */
+const OUTPUT_FLUSH_MS = 5
 
 export interface PtyManagerOptions {
   onData: (tileId: string, data: string) => void
@@ -161,7 +164,9 @@ export class PtyManager {
     const existing = this.sessions.get(tileId)
     if (existing) {
       this.resize(tileId, opts.cols, opts.rows)
-      return { backlog: existing.backlog }
+      // Sent before this reply, so the view (which ignores output until the reply) won't show it twice.
+      existing.output.flush()
+      return { backlog: existing.output.backlog() }
     }
 
     perfMark(`pty-create-received:${tileId}`)
@@ -178,13 +183,14 @@ export class PtyManager {
     })
 
     perfMark(`pty-spawned:${tileId}`)
-    const session: PtySession = { proc, backlog: '' }
+    const output = new PtyOutput((data) => this.options.onData(tileId, data), BACKLOG_LIMIT, OUTPUT_FLUSH_MS)
+    const session: PtySession = { proc, output }
     proc.onData((data) => {
-      if (session.backlog === '') perfMark(`pty-first-output:${tileId}`)
-      session.backlog = (session.backlog + data).slice(-BACKLOG_LIMIT)
-      this.options.onData(tileId, data)
+      if (!output.hasOutput) perfMark(`pty-first-output:${tileId}`)
+      output.push(data)
     })
     proc.onExit(({ exitCode }) => {
+      output.flush() // the last words (an error message) before the exit
       this.sessions.delete(tileId)
       this.options.onExit(tileId, exitCode)
     })
@@ -210,6 +216,7 @@ export class PtyManager {
   kill(tileId: string): void {
     const session = this.sessions.get(tileId)
     if (!session) return
+    session.output.dispose()
     try {
       session.proc.kill()
     } catch {
