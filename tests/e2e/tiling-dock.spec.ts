@@ -167,7 +167,8 @@ test('splitter drag next to a web page: a snapshot stands in while dragging, the
       const viewBounds = () =>
         s.app.evaluate(({ BaseWindow }) => {
           const [win] = BaseWindow.getAllWindows()
-          return win.contentView.children[1].getBounds()
+          // Not created yet right after launch: count it as not shown (expect.poll doesn't retry a throw).
+          return win.contentView.children[1]?.getBounds() ?? { x: 0, y: 0, width: 0, height: 0 }
         })
       const placeholderBounds = async () => {
         const b = (await placeholder.boundingBox())!

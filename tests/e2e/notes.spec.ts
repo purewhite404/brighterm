@@ -1,5 +1,5 @@
-import { test, expect, type Page } from '@playwright/test'
-import { mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
+import { test, expect, type ElectronApplication, type FrameLocator, type Page } from '@playwright/test'
+import { existsSync, mkdirSync, readdirSync, readFileSync, utimesSync, writeFileSync } from 'node:fs'
 import { join, sep } from 'node:path'
 import { dock, launch, launchIn, mockFolderPicker, removeDir, tempDir } from './helpers'
 
@@ -365,5 +365,184 @@ test('Notes: on a small tile the file list folds away and opens on demand; on a 
   } finally {
     await s.cleanup()
     removeDir(base)
+  }
+})
+
+// ---- Right-click menu on the file list ----
+
+/** A row of the file list, by the name it shows (exact: "a" is not "a (2)"). */
+const row = (notes: FrameLocator, name: string) => notes.getByRole('button', { name, exact: true }).and(notes.locator('.file-row'))
+const menu = (notes: FrameLocator) => notes.locator('.ctx-menu')
+
+async function menuItem(notes: FrameLocator, name: string, item: string): Promise<void> {
+  await row(notes, name).click({ button: 'right' })
+  await menu(notes).getByRole('button', { name: item, exact: true }).click()
+  await expect(menu(notes)).toHaveCount(0)
+}
+
+const mdFiles = (dir: string) => readdirSync(dir).filter((f) => f.endsWith('.md')).sort()
+
+/** Runs `body` with the user's clipboard put back afterwards (tests run while they work). */
+async function keepingClipboard(app: ElectronApplication, body: () => Promise<void>): Promise<void> {
+  const saved = await app.evaluate(({ clipboard }) => clipboard.readText())
+  try {
+    await body()
+  } finally {
+    await app.evaluate(({ clipboard }, text) => clipboard.writeText(text), saved)
+  }
+}
+
+test('Notes menu: copy / cut / paste, also into another folder; copy path', async () => {
+  const one = tempDir('brighterm-notes-1-')
+  const two = tempDir('brighterm-notes-2-')
+  writeFileSync(join(one, 'a.md'), 'note A')
+  writeFileSync(join(one, 'b.md'), 'note B')
+  writeFileSync(join(two, 'a.md'), 'folder two A')
+  const s = await launch()
+  try {
+    await dock(s.window, 'Notes').click()
+    const notes = s.window.frameLocator('iframe.bt-plugin-frame')
+    await typeFolder(s.window, one)
+    await expect(row(notes, 'a')).toBeVisible({ timeout: 10_000 })
+
+    // Nothing copied yet: no "貼り付け". Esc closes the menu.
+    await row(notes, 'a').click({ button: 'right' })
+    await expect(menu(notes).getByRole('button')).toHaveText(['コピー', '切り取り', 'パスのコピー', '名前の変更', '削除'])
+    await expect(menu(notes)).toBeInViewport()
+    await notes.locator('body').press('Escape')
+    await expect(menu(notes)).toHaveCount(0)
+
+    // Copy + paste in the same folder: a second file under a free name.
+    await menuItem(notes, 'a', 'コピー')
+    await menuItem(notes, 'b', '貼り付け')
+    await expect(row(notes, 'a (2)')).toBeVisible()
+    expect(mdFiles(one)).toEqual(['a (2).md', 'a.md', 'b.md'])
+    expect(readFileSync(join(one, 'a (2).md'), 'utf-8')).toBe('note A')
+
+    // Copy path: the full path is on the clipboard.
+    await keepingClipboard(s.app, async () => {
+      await menuItem(notes, 'b', 'パスのコピー')
+      await expect.poll(() => s.app.evaluate(({ clipboard }) => clipboard.readText())).toBe(join(one, 'b.md'))
+    })
+
+    // Copy in folder one, paste in folder two (which has its own a.md): the copy is folder one's.
+    await menuItem(notes, 'a', 'コピー')
+    await typeFolder(s.window, two)
+    await expect(row(notes, 'a')).toBeVisible()
+    await menuItem(notes, 'a', '貼り付け')
+    await expect(row(notes, 'a (2)')).toBeVisible()
+    expect(readFileSync(join(two, 'a (2).md'), 'utf-8')).toBe('note A')
+    expect(readFileSync(join(two, 'a.md'), 'utf-8')).toBe('folder two A')
+
+    // Cut in folder one, paste in folder two: the note moves.
+    await typeFolder(s.window, one)
+    await expect(row(notes, 'b')).toBeVisible()
+    await menuItem(notes, 'b', '切り取り')
+    // Pasting a cut note into its own folder changes nothing.
+    await menuItem(notes, 'a', '貼り付け')
+    expect(mdFiles(one)).toEqual(['a (2).md', 'a.md', 'b.md'])
+    await typeFolder(s.window, two)
+    await expect(row(notes, 'a')).toBeVisible()
+    await menuItem(notes, 'a', '貼り付け')
+    await expect(row(notes, 'b')).toBeVisible()
+    expect(readFileSync(join(two, 'b.md'), 'utf-8')).toBe('note B')
+    expect(existsSync(join(one, 'b.md'))).toBe(false)
+    // A cut is used up once pasted.
+    await row(notes, 'a').click({ button: 'right' })
+    await expect(menu(notes).getByRole('button', { name: '貼り付け' })).toHaveCount(0)
+
+    expect(s.pageErrors).toEqual([])
+    await expect(s.window.getByRole('alert', { name: 'プラグインのエラー' })).toHaveCount(0)
+  } finally {
+    await s.cleanup()
+    removeDir(one)
+    removeDir(two)
+  }
+})
+
+test('Notes menu: rename in place (Enter / Esc / unchanged / case only / taken name) and delete', async () => {
+  const dir = tempDir('brighterm-notes-')
+  writeFileSync(join(dir, 'note.md'), 'my note')
+  writeFileSync(join(dir, 'other.md'), 'other note')
+  const s = await launch()
+  const dialogs: string[] = []
+  let acceptDialogs = false
+  s.window.on('dialog', (d) => {
+    dialogs.push(d.message())
+    void (acceptDialogs ? d.accept() : d.dismiss())
+  })
+  try {
+    await dock(s.window, 'Notes').click()
+    const notes = s.window.frameLocator('iframe.bt-plugin-frame')
+    await typeFolder(s.window, dir)
+    await expect(notes.locator('#content')).toHaveValue('my note') // "note" is open
+    const box = notes.locator('.file-rename')
+
+    // Esc: nothing changes, the row is back.
+    await menuItem(notes, 'note', '名前の変更')
+    await expect(box).toBeFocused()
+    await expect(box).toHaveValue('note')
+    await box.fill('ignored')
+    await box.press('Escape')
+    await expect(box).toHaveCount(0)
+    await expect(row(notes, 'note')).toBeVisible()
+
+    // Enter without a change: the box goes away too.
+    await menuItem(notes, 'note', '名前の変更')
+    await box.press('Enter')
+    await expect(box).toHaveCount(0)
+    await expect(row(notes, 'note')).toBeVisible()
+    expect(mdFiles(dir)).toEqual(['note.md', 'other.md'])
+
+    // Only the case changes (the same file on Windows): the note must survive.
+    await menuItem(notes, 'note', '名前の変更')
+    await box.fill('Note')
+    await box.press('Enter')
+    await expect(row(notes, 'Note')).toBeVisible()
+    expect(mdFiles(dir)).toEqual(['Note.md', 'other.md'])
+    expect(readFileSync(join(dir, 'Note.md'), 'utf-8')).toBe('my note')
+    await expect(notes.locator('#title')).toHaveValue('Note') // it was the open note
+
+    // A name another note already has (in any case) is refused; nothing is overwritten.
+    await menuItem(notes, 'Note', '名前の変更')
+    await box.fill('OTHER')
+    await box.press('Enter')
+    await expect.poll(() => dialogs.at(-1)).toContain('同じ名前のファイルがあります')
+    await expect(box).toHaveCount(0)
+    expect(readFileSync(join(dir, 'other.md'), 'utf-8')).toBe('other note')
+    expect(readFileSync(join(dir, 'Note.md'), 'utf-8')).toBe('my note')
+
+    // A real rename: the file is renamed, its content kept.
+    await menuItem(notes, 'Note', '名前の変更')
+    await box.fill('renamed')
+    await box.press('Enter')
+    await expect(row(notes, 'renamed')).toBeVisible()
+    expect(mdFiles(dir)).toEqual(['other.md', 'renamed.md'])
+    expect(readFileSync(join(dir, 'renamed.md'), 'utf-8')).toBe('my note')
+    await expect(notes.locator('#title')).toHaveValue('renamed')
+
+    // Renaming through the title field can't overwrite another note either: refused, title put back.
+    await notes.locator('#title').fill('Other')
+    await notes.locator('#title').press('Enter')
+    await expect.poll(() => dialogs.at(-1)).toContain('同じ名前のファイルがあります: Other.md')
+    await expect(notes.locator('#title')).toHaveValue('renamed')
+    expect(readFileSync(join(dir, 'other.md'), 'utf-8')).toBe('other note')
+    expect(mdFiles(dir)).toEqual(['other.md', 'renamed.md'])
+
+    // Delete asks first: "cancel" keeps it, "OK" deletes it and clears the editor.
+    await menuItem(notes, 'renamed', '削除')
+    await expect.poll(() => dialogs.at(-1)).toContain('「renamed」を削除しますか？')
+    expect(existsSync(join(dir, 'renamed.md'))).toBe(true)
+    acceptDialogs = true
+    await menuItem(notes, 'renamed', '削除')
+    await expect(row(notes, 'renamed')).toHaveCount(0)
+    expect(mdFiles(dir)).toEqual(['other.md'])
+    await expect(notes.locator('#content')).toHaveValue('')
+    await expect(notes.locator('#title')).toHaveValue('')
+
+    expect(s.pageErrors).toEqual([])
+  } finally {
+    await s.cleanup()
+    removeDir(dir)
   }
 })

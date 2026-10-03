@@ -180,7 +180,8 @@ function renderFileList() {
 }
 
 // ---- Right-click menu on the file list: copy / cut / paste / copy path / rename / delete.
-let fileClipboard = null // { name, cut }
+// The folder is remembered too: a note copied here can be pasted after switching folders.
+let fileClipboard = null // { handle, name, cut }
 let menuEl = null
 
 function closeMenu() {
@@ -202,8 +203,8 @@ function showMenu(x, y, file) {
   closeMenu()
   const items = []
   if (file) {
-    items.push(['コピー', () => (fileClipboard = { name: file.name, cut: false })])
-    items.push(['切り取り', () => (fileClipboard = { name: file.name, cut: true })])
+    items.push(['コピー', () => (fileClipboard = { handle: folderHandle, name: file.name, cut: false })])
+    items.push(['切り取り', () => (fileClipboard = { handle: folderHandle, name: file.name, cut: true })])
   }
   if (fileClipboard) items.push(['貼り付け', pasteFile])
   if (file) {
@@ -232,6 +233,15 @@ function showMenu(x, y, file) {
   menuEl.style.top = Math.max(0, Math.min(y, window.innerHeight - menuEl.offsetHeight - 4)) + 'px'
 }
 
+/**
+ * Is `name` taken in this folder (by a file other than `except`)? Case is ignored:
+ * on Windows "Note.md" and "note.md" are the same file, so writing one overwrites the other.
+ */
+function nameTaken(name, except = null) {
+  const lower = name.toLowerCase()
+  return files.some((f) => f.name !== except && f.name.toLowerCase() === lower)
+}
+
 /** "a.md" → "a (2).md" … the first name not taken yet. */
 function freeName(name) {
   const dot = name.lastIndexOf('.')
@@ -239,20 +249,41 @@ function freeName(name) {
   const ext = dot > 0 ? name.slice(dot) : ''
   let n = 2
   let candidate = name
-  while (files.some((f) => f.name === candidate)) candidate = `${base} (${n++})${ext}`
+  while (nameTaken(candidate)) candidate = `${base} (${n++})${ext}`
   return candidate
+}
+
+/**
+ * Renames a file in this folder (the Host API has no rename: write the new one, delete the old).
+ * A change of case only goes through a temporary name — written straight away, "Note.md"
+ * would *be* "note.md" on Windows, and deleting the old name would delete the note.
+ */
+async function moveFile(from, to, content) {
+  const fs = window.brighterm.fs
+  if (from.toLowerCase() === to.toLowerCase()) {
+    const temp = `${to}.renaming-${Date.now()}`
+    await fs.writeFile(folderHandle, temp, content)
+    await fs.deleteFile(folderHandle, from)
+    await fs.writeFile(folderHandle, to, content)
+    await fs.deleteFile(folderHandle, temp)
+    return
+  }
+  await fs.writeFile(folderHandle, to, content)
+  await fs.deleteFile(folderHandle, from)
 }
 
 async function pasteFile() {
   if (!fileClipboard) return
-  const { name, cut } = fileClipboard
+  const { handle, name, cut } = fileClipboard
   await flushSave()
-  if (cut && files.some((f) => f.name === name)) return // cut then paste into the same folder: nothing moves
-  const content = await window.brighterm.fs.readFile(folderHandle, name)
+  const sameFolder = handle.id === folderHandle.id
+  if (cut && sameFolder) return // cut then paste into the same folder: nothing moves
+  // Read from the folder it was copied in — the current one may have another file of that name.
+  const content = await window.brighterm.fs.readFile(handle, name)
   const newName = freeName(name)
   await window.brighterm.fs.writeFile(folderHandle, newName, content)
   if (cut) {
-    await window.brighterm.fs.deleteFile(folderHandle, name)
+    await window.brighterm.fs.deleteFile(handle, name)
     fileClipboard = null
   }
   await refreshFileList()
@@ -285,19 +316,16 @@ function askName(file) {
 
 async function renameFile(file) {
   const input = await askName(file)
-  if (input === null) {
-    renderFileList()
-    return
-  }
+  renderFileList() // the text box goes back to being a row, whatever happens next
+  if (input === null) return
   const title = input.trim().replace(/[\\/:*?"<>|]/g, '_')
   if (!title) return
   const newName = isMarkdown(file.name) ? `${title}.md` : title
   if (newName === file.name) return
-  if (files.some((f) => f.name === newName)) throw new Error(`同じ名前のファイルがあります: ${newName}`)
+  if (nameTaken(newName, file.name)) throw new Error(`同じ名前のファイルがあります: ${newName}`)
   await flushSave()
   const content = await window.brighterm.fs.readFile(folderHandle, file.name)
-  await window.brighterm.fs.writeFile(folderHandle, newName, content)
-  await window.brighterm.fs.deleteFile(folderHandle, file.name)
+  await moveFile(file.name, newName, content)
   if (currentFile === file.name) {
     currentFile = newName
     titleInput.value = displayName(newName)
@@ -353,7 +381,7 @@ function newFileName() {
   const base = titleInput.value.trim().replace(/[\\/:*?"<>|]/g, '_') || `メモ-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}`
   let name = `${base}.md`
   let n = 2
-  while (files.some((f) => f.name === name)) name = `${base} (${n++}).md`
+  while (nameTaken(name)) name = `${base} (${n++}).md`
   return name
 }
 
@@ -381,9 +409,13 @@ async function renameCurrent() {
   const newName = isMarkdown(currentFile) ? `${title || 'Untitled'}.md` : title || currentFile
   if (newName === currentFile) return
   const oldName = currentFile
+  if (nameTaken(newName, oldName)) {
+    titleInput.value = displayName(oldName)
+    alert(`同じ名前のファイルがあります: ${newName}`)
+    return
+  }
   const content = contentArea.value
-  await window.brighterm.fs.writeFile(folderHandle, newName, content)
-  await window.brighterm.fs.deleteFile(folderHandle, oldName)
+  await moveFile(oldName, newName, content)
   currentFile = newName
   if (extraFile === oldName) extraFile = newName
   await refreshFileList()
