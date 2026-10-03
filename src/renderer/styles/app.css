@@ -1,4 +1,4 @@
-/* Brighterm shell styles (Dock, tiling, tile chrome, palette, status bar) and
+/* Brighterm shell styles (Dock, tiling, tile chrome, status bar) and
    the rules several tiles share. Each tile's own styles sit next to it
    (src/renderer/tiles/<tile>/<tile>.css) and load after this file.
    Every color/spacing/radius value is a --bt-* token from
@@ -34,9 +34,25 @@ body,
 
 /* ---------------- Dock ---------------- */
 
+/*
+ * `.bt-dock` keeps the narrow column's place in the layout; the panel inside is
+ * what you see, and when open it widens over the tiles (the tiling area doesn't
+ * move or resize). Open and closed are the same elements: only CSS changes.
+ */
 .bt-dock {
   width: var(--bt-dock-width);
   flex-shrink: 0;
+  position: relative;
+  z-index: 30;
+}
+
+.bt-dock__panel {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--bt-dock-width);
+  box-sizing: border-box;
   background: var(--bt-bg-1);
   border-right: 1px solid var(--bt-border);
   display: flex;
@@ -44,6 +60,14 @@ body,
   align-items: center;
   padding: var(--bt-space-2) 0;
   gap: var(--bt-space-1);
+  overflow: hidden;
+}
+
+.bt-dock--open .bt-dock__panel {
+  width: 240px;
+  align-items: stretch;
+  padding: var(--bt-space-2);
+  box-shadow: var(--bt-shadow-lg);
 }
 
 .bt-dock__section {
@@ -51,6 +75,37 @@ body,
   flex-direction: column;
   align-items: center;
   gap: var(--bt-space-1);
+}
+
+.bt-dock--open .bt-dock__section {
+  align-items: stretch;
+}
+
+.bt-dock__heading {
+  display: none;
+}
+
+.bt-dock--open .bt-dock__heading {
+  display: block;
+  padding: var(--bt-space-2) var(--bt-space-2) 0;
+  font-size: var(--bt-font-size-xs);
+  color: var(--bt-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bt-dock__label {
+  display: none;
+}
+
+.bt-dock--open .bt-dock__label {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--bt-font-size-sm);
 }
 
 .bt-dock__section--scroll {
@@ -64,6 +119,11 @@ body,
   height: 1px;
   background: var(--bt-border);
   margin: var(--bt-space-2) 0;
+  flex-shrink: 0;
+}
+
+.bt-dock--open .bt-dock__divider {
+  width: auto;
 }
 
 .bt-dock__button {
@@ -78,6 +138,18 @@ body,
   justify-content: center;
   cursor: pointer;
   transition: background var(--bt-duration-fast) var(--bt-easing), color var(--bt-duration-fast) var(--bt-easing);
+  flex-shrink: 0;
+}
+
+.bt-dock--open .bt-dock__button {
+  width: 100%;
+  justify-content: flex-start;
+  gap: var(--bt-space-3);
+  padding: 0 10px;
+}
+
+.bt-dock__button[draggable='true'] {
+  cursor: grab;
 }
 
 .bt-dock__button:hover {
@@ -195,7 +267,10 @@ body.bt-resizing-column * {
   user-select: none;
 }
 
-/* Drag & drop: a target over every other tile, with a hint for the zone under the pointer. */
+/*
+ * Drag & drop: a target over every other tile, strips along the edges of the
+ * whole area, and a preview of where the tile(s) will really end up.
+ */
 .bt-drop-target {
   position: absolute;
   inset: 0;
@@ -204,29 +279,52 @@ body.bt-resizing-column * {
   outline: 1px dashed var(--bt-border-strong);
 }
 
-.bt-drop-target__hint {
+/* A new tile dragged into an empty workspace fills it. */
+.bt-area-drop {
   position: absolute;
+  inset: 0;
+  z-index: 10;
+}
+
+/* Faintly visible so it's discoverable that the whole area's edges take a drop too. */
+.bt-edge-drop {
+  position: absolute;
+  z-index: 12;
+  background: var(--bt-accent-soft);
+  opacity: 0.5;
+}
+.bt-edge-drop--left {
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+}
+.bt-edge-drop--right {
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+}
+.bt-edge-drop--top {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+}
+.bt-edge-drop--bottom {
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 14px;
+}
+.bt-drop-preview {
+  position: absolute;
+  z-index: 15;
   background: var(--bt-accent-soft);
   border: 2px solid var(--bt-accent);
   border-radius: var(--bt-radius-md);
   pointer-events: none;
   transition: all var(--bt-duration-fast) var(--bt-easing);
-}
-
-.bt-drop-target__hint--left {
-  inset: 0 50% 0 0;
-}
-.bt-drop-target__hint--right {
-  inset: 0 0 0 50%;
-}
-.bt-drop-target__hint--top {
-  inset: 0 0 50% 0;
-}
-.bt-drop-target__hint--bottom {
-  inset: 50% 0 0 0;
-}
-.bt-drop-target__hint--center {
-  inset: 20%;
 }
 
 .bt-tile__header {
@@ -448,77 +546,6 @@ body.bt-resizing-column * {
   font-size: var(--bt-font-size-xs);
   color: var(--bt-accent-strong);
   white-space: nowrap;
-}
-
-/* ---------------- Command palette ---------------- */
-
-.bt-palette-overlay {
-  position: fixed;
-  inset: 0;
-  background: var(--bt-bg-overlay);
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 12vh;
-  z-index: 1000;
-}
-
-.bt-palette {
-  width: 560px;
-  max-width: 90vw;
-  max-height: 60vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bt-bg-1);
-  border: 1px solid var(--bt-border-strong);
-  border-radius: var(--bt-radius-lg);
-  box-shadow: var(--bt-shadow-lg);
-  overflow: hidden;
-}
-
-.bt-palette__input {
-  padding: var(--bt-space-4);
-  font-size: var(--bt-font-size-lg);
-  border: none;
-  border-bottom: 1px solid var(--bt-border);
-  background: transparent;
-  color: var(--bt-text-primary);
-  outline: none;
-}
-
-.bt-palette__list {
-  overflow-y: auto;
-  padding: var(--bt-space-2);
-}
-
-.bt-palette__item {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--bt-space-3);
-  padding: var(--bt-space-2) var(--bt-space-3);
-  border: none;
-  background: transparent;
-  color: var(--bt-text-primary);
-  border-radius: var(--bt-radius-sm);
-  cursor: pointer;
-  text-align: left;
-}
-
-.bt-palette__item--active {
-  background: var(--bt-accent-soft);
-}
-
-.bt-palette__group {
-  margin-left: auto;
-  font-size: var(--bt-font-size-xs);
-  color: var(--bt-text-muted);
-}
-
-.bt-palette__empty {
-  padding: var(--bt-space-4);
-  text-align: center;
-  color: var(--bt-text-muted);
 }
 
 /* ---------------- Status bar ---------------- */

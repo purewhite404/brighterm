@@ -1,9 +1,20 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { LayoutNode, Rect } from '@shared/types'
-import { computeRects, computeSplitters, splitterOffset, splitterRatioAt, type DropZone, type SplitterRect } from './layout'
+import {
+  computeRects,
+  computeSplitters,
+  dropPreview,
+  splitterOffset,
+  splitterRatioAt,
+  type DragSource,
+  type Drop,
+  type DropZone,
+  type Edge,
+  type SplitterRect
+} from './layout'
 import { useAppStore } from '../store/appStore'
 import { TileChrome } from './TileChrome'
-import { TileDragContext, TileRectContext, TILE_DRAG_MIME } from './tileContexts'
+import { NEW_TILE_DRAG_MIME, TileRectContext, TILE_DRAG_MIME } from './tileContexts'
 
 /**
  * Tiles are rendered as one flat, absolutely-positioned list keyed by tile
@@ -15,6 +26,30 @@ import { TileDragContext, TileRectContext, TILE_DRAG_MIME } from './tileContexts
 
 const SPLITTER_THICKNESS = 6
 const GAP = 2
+const EDGES: Edge[] = ['left', 'right', 'top', 'bottom']
+
+function insetRect(rect: Rect): Rect {
+  return {
+    x: rect.x + GAP,
+    y: rect.y + GAP,
+    width: Math.max(0, rect.width - GAP * 2),
+    height: Math.max(0, rect.height - GAP * 2)
+  }
+}
+
+function sameDrop(a: Drop | null, b: Drop | null): boolean {
+  if (a === null || b === null) return a === b
+  if (a.kind === 'area') return b.kind === 'area'
+  if (a.kind === 'edge') return b.kind === 'edge' && a.edge === b.edge
+  return b.kind === 'tile' && a.targetTileId === b.targetTileId && a.zone === b.zone
+}
+
+interface DropHandlers {
+  hover: (drop: Drop) => void
+  leave: (drop: Drop) => void
+  drop: (drop: Drop) => void
+}
+
 function zoneAt(event: React.DragEvent<HTMLDivElement>): DropZone {
   const box = event.currentTarget.getBoundingClientRect()
   const fx = (event.clientX - box.left) / box.width
@@ -30,31 +65,51 @@ function zoneAt(event: React.DragEvent<HTMLDivElement>): DropZone {
   return distances[0][0]
 }
 
-function DropTarget({ tileId }: { tileId: string }): React.JSX.Element {
-  const moveTileTo = useAppStore((s) => s.moveTileTo)
-  const [zone, setZone] = useState<DropZone | null>(null)
+/**
+ * Drop handling for one target (another tile, or a strip along an edge of the
+ * whole area). The hint isn't drawn here: TilingView draws where the tiles will
+ * really end up (`dropPreview`).
+ */
+function dropEvents(handlers: DropHandlers, dropAt: (e: React.DragEvent<HTMLDivElement>) => Drop) {
+  return {
+    onDragOver: (e: React.DragEvent<HTMLDivElement>) => {
+      const { types } = e.dataTransfer
+      if (!types.includes(TILE_DRAG_MIME) && !types.includes(NEW_TILE_DRAG_MIME)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = types.includes(NEW_TILE_DRAG_MIME) ? 'copy' : 'move'
+      handlers.hover(dropAt(e))
+    },
+    onDragLeave: (e: React.DragEvent<HTMLDivElement>) => handlers.leave(dropAt(e)),
+    onDrop: (e: React.DragEvent<HTMLDivElement>) => {
+      e.preventDefault()
+      handlers.drop(dropAt(e))
+    }
+  }
+}
 
+function DropTarget({ tileId, handlers }: { tileId: string; handlers: DropHandlers }): React.JSX.Element {
   return (
     <div
       className="bt-drop-target"
-      onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes(TILE_DRAG_MIME)) return
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'move'
-        setZone(zoneAt(e))
-      }}
-      onDragLeave={() => setZone(null)}
-      onDrop={(e) => {
-        e.preventDefault()
-        const draggedId = e.dataTransfer.getData(TILE_DRAG_MIME)
-        const dropZone = zoneAt(e)
-        setZone(null)
-        if (draggedId) moveTileTo(draggedId, tileId, dropZone)
-      }}
-    >
-      {zone && <div className={`bt-drop-target__hint bt-drop-target__hint--${zone}`} />}
-    </div>
+      {...dropEvents(handlers, (e) => ({ kind: 'tile', targetTileId: tileId, zone: zoneAt(e) satisfies DropZone }))}
+    />
   )
+}
+
+/** A strip along one side of the whole tiling area: drops there span the full width / height. */
+function EdgeDropTarget({ edge, handlers }: { edge: Edge; handlers: DropHandlers }): React.JSX.Element {
+  return (
+    <div
+      className={`bt-edge-drop bt-edge-drop--${edge}`}
+      data-edge={edge}
+      {...dropEvents(handlers, () => ({ kind: 'edge', edge }))}
+    />
+  )
+}
+
+/** The whole (empty) tiling area, for a new tile dragged into an empty workspace. */
+function AreaDropTarget({ handlers }: { handlers: DropHandlers }): React.JSX.Element {
+  return <div className="bt-area-drop" {...dropEvents(handlers, () => ({ kind: 'area' }))} />
 }
 
 /**
@@ -66,6 +121,7 @@ function DropTarget({ tileId }: { tileId: string }): React.JSX.Element {
  */
 function Splitter({ splitter, containerRef }: { splitter: SplitterRect; containerRef: React.RefObject<HTMLDivElement | null> }): React.JSX.Element {
   const resizeSplitAt = useAppStore((s) => s.resizeSplitAt)
+  const setResizing = useAppStore((s) => s.setResizing)
 
   const onPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
@@ -83,7 +139,7 @@ function Splitter({ splitter, containerRef }: { splitter: SplitterRect; containe
       handle.setPointerCapture(pointerId)
       handle.classList.add('bt-splitter--dragging')
       document.body.classList.add(`bt-resizing-${splitter.direction}`)
-      void window.api.overlay.show()
+      setResizing(true)
 
       const onMove = (move: PointerEvent): void => {
         ratio = splitterRatioAt(splitter, move.clientX - origin.left, move.clientY - origin.top)
@@ -100,7 +156,7 @@ function Splitter({ splitter, containerRef }: { splitter: SplitterRect; containe
         handle.classList.remove('bt-splitter--dragging')
         handle.style.transform = ''
         document.body.classList.remove(`bt-resizing-${splitter.direction}`)
-        void window.api.overlay.hide()
+        setResizing(false)
         if (commit && ratio !== null) resizeSplitAt(splitter.path, ratio)
       }
       const onUp = (): void => finish(true)
@@ -116,7 +172,7 @@ function Splitter({ splitter, containerRef }: { splitter: SplitterRect; containe
       handle.addEventListener('lostpointercapture', onCancel)
       window.addEventListener('keydown', onKey, true)
     },
-    [containerRef, splitter, resizeSplitAt]
+    [containerRef, splitter, resizeSplitAt, setResizing]
   )
 
   const { rect } = splitter
@@ -132,8 +188,11 @@ function Splitter({ splitter, containerRef }: { splitter: SplitterRect; containe
 export const TilingView = memo(function TilingView({ layout }: { layout: LayoutNode | null }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ width: 0, height: 0 })
-  const [draggingTileId, setDraggingTileId] = useState<string | null>(null)
+  const [hoveredDrop, setHoveredDrop] = useState<Drop | null>(null)
   const setViewportAspect = useAppStore((s) => s.setViewportAspect)
+  const tileDrag = useAppStore((s) => s.tileDrag)
+  const endTileDrag = useAppStore((s) => s.endTileDrag)
+  const draggingTileId = tileDrag?.kind === 'tile' ? tileDrag.tileId : null
 
   useEffect(() => {
     const el = containerRef.current
@@ -163,60 +222,86 @@ export const TilingView = memo(function TilingView({ layout }: { layout: LayoutN
     () =>
       [...tileRects]
         .sort((a, b) => (a.tileId < b.tileId ? -1 : a.tileId > b.tileId ? 1 : 0))
-        .map(({ tileId, rect }) => ({
-          tileId,
-          inner: {
-            x: rect.x + GAP,
-            y: rect.y + GAP,
-            width: Math.max(0, rect.width - GAP * 2),
-            height: Math.max(0, rect.height - GAP * 2)
-          } satisfies Rect
-        })),
+        .map(({ tileId, rect }) => ({ tileId, inner: insetRect(rect) })),
     [tileRects]
   )
 
-  const dragContext = useMemo(
+  // A drag ends with dragend on its source (after a drop, or cancelled: released outside, Escape).
+  // Listened to on the window: the source may be a Dock button or a tile header.
+  useEffect(() => {
+    if (!tileDrag) {
+      setHoveredDrop(null)
+      return
+    }
+    const onEnd = (): void => endTileDrag()
+    window.addEventListener('dragend', onEnd, true)
+    return () => window.removeEventListener('dragend', onEnd, true)
+  }, [tileDrag, endTileDrag])
+
+  const dropHandlers = useMemo<DropHandlers>(
     () => ({
-      draggingTileId,
-      startDrag: (tileId: string) => {
-        setDraggingTileId(tileId)
-        // Native web views are drawn above the DOM; swap them for snapshots so drop targets are reachable.
-        void window.api.overlay.show()
-      },
-      endDrag: () => {
-        setDraggingTileId(null)
-        void window.api.overlay.hide()
+      // Only re-render when the drop under the pointer changes (dragover fires every few ms).
+      hover: (drop) => setHoveredDrop((current) => (sameDrop(current, drop) ? current : drop)),
+      // dragenter on the next target can come before dragleave on this one: only clear our own drop.
+      leave: (drop) => setHoveredDrop((current) => (sameDrop(current, drop) ? null : current)),
+      drop: (drop) => {
+        setHoveredDrop(null)
+        const { tileDrag: drag, dropTile, addTile } = useAppStore.getState()
+        if (drag?.kind === 'tile') dropTile(drag.tileId, drop)
+        else if (drag?.kind === 'new') addTile(drag.tile, drop)
       }
     }),
-    [draggingTileId]
+    []
   )
+
+  const dragSource = useMemo<DragSource | null>(
+    () => (tileDrag === null ? null : tileDrag.kind === 'new' ? { kind: 'new' } : { kind: 'tile', tileId: tileDrag.tileId }),
+    [tileDrag]
+  )
+  const preview = useMemo(
+    () => (dragSource && hoveredDrop ? dropPreview(layout, area, dragSource, hoveredDrop).map(insetRect) : []),
+    [layout, area, dragSource, hoveredDrop]
+  )
+  // A moved tile can't go to an edge if it's the only one; a new tile can, next to any tile.
+  const edgeDrops = dragSource !== null && tileRects.length > (dragSource.kind === 'new' ? 0 : 1)
 
   return (
     <div ref={containerRef} className="bt-tiling-root">
       {layout === null && (
         <div className="bt-tiling-empty">
-          <div className="bt-tiling-empty__hint">ドックのアイコンをクリックしてタイルを追加してください</div>
+          <div className="bt-tiling-empty__hint">ドックのアイコンをクリックするか、ここへドラッグしてタイルを追加してください</div>
         </div>
       )}
-      <TileDragContext.Provider value={dragContext}>
-        {size.width > 0 &&
-          orderedTiles.map(({ tileId, inner }) => {
-            return (
-              <div
-                key={tileId}
-                className="bt-tile-slot"
-                style={{ left: inner.x, top: inner.y, width: inner.width, height: inner.height }}
-              >
-                <TileRectContext.Provider value={inner}>
-                  <TileChrome tileId={tileId} />
-                </TileRectContext.Provider>
-                {draggingTileId && draggingTileId !== tileId && <DropTarget tileId={tileId} />}
-              </div>
-            )
-          })}
-      </TileDragContext.Provider>
-      {!draggingTileId &&
-        splitters.map((s) => <Splitter key={s.path.join('') || 'root'} splitter={s} containerRef={containerRef} />)}
+      {size.width > 0 &&
+        orderedTiles.map(({ tileId, inner }) => {
+          return (
+            <div
+              key={tileId}
+              className="bt-tile-slot"
+              style={{ left: inner.x, top: inner.y, width: inner.width, height: inner.height }}
+            >
+              <TileRectContext.Provider value={inner}>
+                <TileChrome tileId={tileId} />
+              </TileRectContext.Provider>
+              {dragSource && draggingTileId !== tileId && <DropTarget tileId={tileId} handlers={dropHandlers} />}
+            </div>
+          )
+        })}
+      {dragSource?.kind === 'new' && layout === null && <AreaDropTarget handlers={dropHandlers} />}
+      {edgeDrops &&
+        EDGES.map((edge) => <EdgeDropTarget key={edge} edge={edge} handlers={dropHandlers} />)}
+      {preview.map((rect, i) => (
+        <div
+          key={i}
+          className="bt-drop-preview"
+          style={{ left: rect.x, top: rect.y, width: rect.width, height: rect.height }}
+        />
+      ))}
+      {/* Reversed: a split's handle is drawn after (over) the handles inside its halves. At a T
+          junction the inner handle starts right at the outer line, so grabbing the middle of the
+          long line used to grab the short one. */}
+      {!dragSource &&
+        [...splitters].reverse().map((s) => <Splitter key={s.path.join('') || 'root'} splitter={s} containerRef={containerRef} />)}
     </div>
   )
 })

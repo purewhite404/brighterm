@@ -7,7 +7,7 @@ export interface BuiltinTileInfo {
   dockVisible: boolean
 }
 
-/** Every built-in tile the Dock and the command palette offer. Their components are in registry.tsx. */
+/** Every built-in tile the Dock offers. Their components are in registry.tsx. */
 export const BUILTIN_TILES: Record<BuiltinTileType, BuiltinTileInfo> = {
   terminal: { title: 'Terminal', icon: 'terminal', dockVisible: true },
   browser: { title: 'Browser', icon: 'browser', dockVisible: true },

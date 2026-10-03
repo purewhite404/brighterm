@@ -86,6 +86,15 @@ export function seedWorkspace(userDataDir: string, tiles: Record<string, object>
 
 export const dock = (window: Page, title: string) => window.locator(`.bt-dock__button[title="${title}"]`)
 
+/** Waits for a tile drag's drop preview to be rendered and its move animation (CSS transition) to end. */
+export async function settledPreview(window: Page): Promise<void> {
+  await window.evaluate(async () => {
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+    const previews = [...document.querySelectorAll('.bt-drop-preview')]
+    await Promise.all(previews.flatMap((el) => el.getAnimations().map((a) => a.finished)))
+  })
+}
+
 /** Stands in for the native folder picker. */
 export async function mockFolderPicker(app: ElectronApplication, dir: string): Promise<void> {
   await app.evaluate(({ dialog }, d) => {

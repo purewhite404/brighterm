@@ -54,7 +54,7 @@ src/main/            … Electron メインプロセス(機能ごとのフォル
 
 src/preload/index.ts  … contextBridge 経由でレンダラーに公開する唯一の API
 src/renderer/         … React 製 UI
-  dock/ palette/ tiling/ store/ … ドック、コマンドパレット、タイリング、状態管理
+  dock/ tiling/ store/ … ドック、タイリング、状態管理
   tiles/<タイル名>/    … 各タイルの画面と CSS(terminal, browser, mail, calendar, files,
                          sysmon, hq, ai-builder, settings, web, plugin)
   tiles/shared/        … タイル共通の部品(Web ビュー埋め込み、タイル設定の保存など)

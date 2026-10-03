@@ -18,7 +18,13 @@ import {
   chooseGridColumns,
   computeSplitters,
   splitterOffset,
-  splitterRatioAt
+  splitterRatioAt,
+  insertTile,
+  moveTileToEdge,
+  applyDrop,
+  dropPreview,
+  visualOrder,
+  insertTileAt
 } from './layout'
 
 describe('leaf / split constructors', () => {
@@ -357,5 +363,199 @@ describe('splitterRatioAt / splitterOffset (the guide line while dragging)', () 
     const ratio = splitterRatioAt(handle, 10, 10)
     expect(ratio).toBeGreaterThanOrEqual(0.05)
     expect(ratio).toBeLessThanOrEqual(0.95)
+  })
+})
+
+describe('visualOrder', () => {
+  it('reads tiles top row first, then left to right — not in tree order', () => {
+    const root = split('row', split('column', leaf('a'), leaf('c')), leaf('b'))
+    expect(listTileIds(root)).toEqual(['a', 'c', 'b'])
+    expect(visualOrder(root)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('is empty for an empty tree', () => {
+    expect(visualOrder(null)).toEqual([])
+  })
+})
+
+describe('insertTile (split the largest tile along its longer side)', () => {
+  const wide = 16 / 9
+
+  it('starts a tree from nothing', () => {
+    expect(insertTile(null, 'a', wide)).toEqual(leaf('a'))
+  })
+
+  it('splits side by side in a wide area, stacked in a tall one', () => {
+    expect(insertTile(leaf('a'), 'b', wide)).toEqual(split('row', leaf('a'), leaf('b')))
+    expect(insertTile(leaf('a'), 'b', 0.5)).toEqual(split('column', leaf('a'), leaf('b')))
+  })
+
+  it('fills a wide area into a 2x2 grid in reading order', () => {
+    let root: LayoutNode | null = null
+    for (const id of ['a', 'b', 'c', 'd']) root = insertTile(root, id, wide)
+    expect(visualOrder(root)).toEqual(['a', 'b', 'c', 'd'])
+    const rects = computeRects(root, { x: 0, y: 0, width: 160, height: 90 })
+    for (const { rect } of rects) {
+      expect(rect.width).toBeCloseTo(80)
+      expect(rect.height).toBeCloseTo(45)
+    }
+  })
+
+  it('splits the largest tile, leaving every other split as the user left it', () => {
+    const root = split('row', leaf('a'), split('column', leaf('b'), leaf('c'), 0.3), 0.7)
+    const result = insertTile(root, 'n', wide)
+    expect(result).toEqual(split('row', split('row', leaf('a'), leaf('n')), split('column', leaf('b'), leaf('c'), 0.3), 0.7))
+  })
+
+  it('never changes anything else: removing the new tile gives back the same tree', () => {
+    const trees: LayoutNode[] = [
+      leaf('a'),
+      split('row', leaf('a'), leaf('b'), 0.2),
+      split('column', split('row', leaf('a'), leaf('b'), 0.7), split('row', leaf('c'), leaf('d'), 0.3), 0.6),
+      split('row', split('column', leaf('a'), split('row', leaf('b'), leaf('c'), 0.8), 0.35), leaf('d'), 0.55)
+    ]
+    for (const tree of trees) {
+      expect(removeTile(insertTile(tree, 'n', wide), 'n')).toEqual(tree)
+    }
+  })
+})
+
+describe('closing a tile keeps the user\'s layout (regression: closing used to re-grid everything)', () => {
+  it('only the sibling takes the space; other ratios stay', () => {
+    const root = split('column', split('row', leaf('a'), leaf('b'), 0.7), split('row', leaf('c'), leaf('d'), 0.3), 0.6)
+    expect(removeTile(root, 'b')).toEqual(split('column', leaf('a'), split('row', leaf('c'), leaf('d'), 0.3), 0.6))
+  })
+
+  it('a move followed by add and close keeps where the moved tile went', () => {
+    let root: LayoutNode | null = autoGrid(['a', 'b', 'c', 'd'], 16 / 9)
+    root = moveTile(root, 'd', 'a', 'left') // d now left of a, top row
+    expect(visualOrder(root).slice(0, 2)).toEqual(['d', 'a'])
+    root = insertTile(root, 'e', 16 / 9)
+    root = removeTile(root, 'e')
+    root = removeTile(root, 'c')
+    expect(visualOrder(root)).toEqual(['d', 'a', 'b'])
+  })
+})
+
+describe('moveTileToEdge', () => {
+  const area = { x: 0, y: 0, width: 160, height: 90 }
+
+  it('puts the tile along the whole bottom, one band tall', () => {
+    const grid = autoGrid(['a', 'b', 'c', 'd'], 16 / 9)
+    const result = moveTileToEdge(grid, 'd', 'bottom')!
+    expect(result.type).toBe('split')
+    const d = computeRects(result, area).find((r) => r.tileId === 'd')!.rect
+    // Two rows remain (a b / c), so d takes a third of the height.
+    expect(d.x).toBe(0)
+    expect(d.width).toBe(160)
+    expect(d.height).toBeCloseTo(30)
+    expect(removeTile(result, 'd')).toEqual(removeTile(grid, 'd'))
+  })
+
+  it('puts the tile along the whole left side', () => {
+    const root = split('column', leaf('a'), leaf('b'))
+    const result = moveTileToEdge(root, 'b', 'left')
+    expect(result).toEqual(split('row', leaf('b'), leaf('a'), 0.5))
+  })
+
+  it('counts columns for a side drop', () => {
+    const root = split('row', leaf('a'), split('row', leaf('b'), leaf('c')), 1 / 3)
+    const result = moveTileToEdge(split('column', root, leaf('d')), 'd', 'right')
+    const d = computeRects(result, area).find((r) => r.tileId === 'd')!.rect
+    expect(d.width).toBeCloseTo(40) // three columns remain: d is the fourth
+    expect(d.height).toBe(90)
+  })
+
+  it('does nothing for the only tile or a missing one', () => {
+    expect(moveTileToEdge(leaf('a'), 'a', 'top')).toEqual(leaf('a'))
+    const root = split('row', leaf('a'), leaf('b'))
+    expect(moveTileToEdge(root, 'x', 'top')).toBe(root)
+    expect(moveTileToEdge(null, 'a', 'top')).toBeNull()
+  })
+})
+
+describe('applyDrop / dropPreview', () => {
+  const root = split('row', leaf('a'), split('column', leaf('b'), leaf('c')))
+  const area = { x: 0, y: 0, width: 100, height: 100 }
+
+  it('dispatches tile and edge drops', () => {
+    expect(applyDrop(root, 'a', { kind: 'tile', targetTileId: 'c', zone: 'center' })).toEqual(swapTiles(root, 'a', 'c'))
+    expect(applyDrop(root, 'a', { kind: 'edge', edge: 'top' })).toEqual(moveTileToEdge(root, 'a', 'top'))
+  })
+
+  it('shows where the tile really lands, after its old place has closed up', () => {
+    // b leaves the right column, so c grows to the full height before being split:
+    // b lands on the right quarter at full height, not on a corner of where c was.
+    expect(dropPreview(root, area, { kind: 'tile', tileId: 'b' }, { kind: 'tile', targetTileId: 'c', zone: 'right' })).toEqual([
+      { x: 75, y: 0, width: 25, height: 100 }
+    ])
+  })
+
+  it('shows both tiles of a swap', () => {
+    expect(dropPreview(root, area, { kind: 'tile', tileId: 'a' }, { kind: 'tile', targetTileId: 'c', zone: 'center' })).toEqual([
+      { x: 50, y: 50, width: 50, height: 50 },
+      { x: 0, y: 0, width: 50, height: 100 }
+    ])
+  })
+
+  it('shows nothing for a drop that changes nothing', () => {
+    expect(dropPreview(root, area, { kind: 'tile', tileId: 'a' }, { kind: 'tile', targetTileId: 'a', zone: 'left' })).toEqual([])
+    expect(dropPreview(leaf('a'), area, { kind: 'tile', tileId: 'a' }, { kind: 'edge', edge: 'left' })).toEqual([])
+  })
+})
+
+describe('insertTileAt (a new tile dragged from the Dock)', () => {
+  const root = split('row', leaf('a'), split('column', leaf('b'), leaf('c'), 0.3), 0.7)
+  const area = { x: 0, y: 0, width: 160, height: 90 }
+
+  it('on a tile\'s side: that tile is halved, nothing else changes', () => {
+    expect(insertTileAt(root, 'n', { kind: 'tile', targetTileId: 'c', zone: 'left' }, 16 / 9)).toEqual(
+      split('row', leaf('a'), split('column', leaf('b'), split('row', leaf('n'), leaf('c')), 0.3), 0.7)
+    )
+  })
+
+  it('on a tile\'s centre: halved along its longer side (no swap)', () => {
+    // a is 112 x 90 (wide) -> side by side; b is 48 x 27 (wide) -> side by side.
+    expect(insertTileAt(root, 'n', { kind: 'tile', targetTileId: 'a', zone: 'center' }, 16 / 9)).toEqual(
+      split('row', split('row', leaf('a'), leaf('n')), split('column', leaf('b'), leaf('c'), 0.3), 0.7)
+    )
+    // In a tall area, c (0.3 x 1.4 of 1 x 2) is tall -> stacked.
+    expect(insertTileAt(root, 'n', { kind: 'tile', targetTileId: 'c', zone: 'center' }, 0.5)).toEqual(
+      split('row', leaf('a'), split('column', leaf('b'), split('column', leaf('c'), leaf('n')), 0.3), 0.7)
+    )
+  })
+
+  it('on an edge of the area: along the whole edge, one band thick, the rest untouched', () => {
+    const result = insertTileAt(root, 'n', { kind: 'edge', edge: 'top' }, 16 / 9)
+    expect(result).toEqual(split('column', leaf('n'), root, 1 / 3))
+  })
+
+  it('into an empty workspace: the whole area', () => {
+    expect(insertTileAt(null, 'n', { kind: 'area' }, 16 / 9)).toEqual(leaf('n'))
+  })
+
+  it('a drop that can\'t be done still adds the tile (the usual way)', () => {
+    expect(insertTileAt(root, 'n', { kind: 'tile', targetTileId: 'gone', zone: 'left' }, 16 / 9)).toEqual(
+      insertTile(root, 'n', 16 / 9)
+    )
+    expect(insertTileAt(root, 'n', { kind: 'area' }, 16 / 9)).toEqual(insertTile(root, 'n', 16 / 9))
+  })
+
+  it('the preview is where the new tile really lands', () => {
+    const drops = [
+      { kind: 'tile', targetTileId: 'c', zone: 'bottom' },
+      { kind: 'tile', targetTileId: 'a', zone: 'center' },
+      { kind: 'edge', edge: 'right' }
+    ] as const
+    for (const drop of drops) {
+      const placed = computeRects(insertTileAt(root, 'n', drop, area.width / area.height), area).find((r) => r.tileId === 'n')!
+      expect(dropPreview(root, area, { kind: 'new' }, drop)).toEqual([placed.rect])
+    }
+    expect(dropPreview(null, area, { kind: 'new' }, { kind: 'area' })).toEqual([area])
+  })
+
+  it('a move onto a centre still swaps; a move can\'t use the empty-area drop', () => {
+    expect(applyDrop(root, 'a', { kind: 'tile', targetTileId: 'b', zone: 'center' })).toEqual(swapTiles(root, 'a', 'b'))
+    expect(applyDrop(root, 'a', { kind: 'area' })).toBe(root)
   })
 })

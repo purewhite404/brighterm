@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { dock, launch, launchIn, removeDir, seedWorkspace, startSite, tempDir } from './helpers'
+import { dock, launch, launchIn, removeDir, seedWorkspace, settledPreview, startSite, tempDir } from './helpers'
 
 async function slotRects(window: Page) {
   return window.locator('.bt-tile-slot').evaluateAll((els) =>
@@ -10,7 +10,26 @@ async function slotRects(window: Page) {
   )
 }
 
-test('tiles flow into a grid of roughly 16:9 cells instead of halving', async () => {
+/** Three Calendar tiles, told apart by title: Alpha on the left, Bravo over Charlie on the right. */
+function seedThree(dir: string): void {
+  const tile = (id: string, title: string) => ({ id, kind: 'builtin', typeId: 'calendar', title, icon: 'calendar', config: {} })
+  const leaf = (id: string) => ({ type: 'leaf', tileId: id })
+  seedWorkspace(
+    dir,
+    { alpha: tile('alpha', 'Alpha'), bravo: tile('bravo', 'Bravo'), charlie: tile('charlie', 'Charlie') },
+    { type: 'split', direction: 'row', ratio: 0.5, a: leaf('alpha'), b: { type: 'split', direction: 'column', ratio: 0.5, a: leaf('bravo'), b: leaf('charlie') } }
+  )
+}
+
+const slot = (window: Page, title: string) =>
+  window.locator('.bt-tile-slot', { has: window.locator('.bt-tile__title', { hasText: title }) })
+
+async function box(locator: ReturnType<Page['locator']>) {
+  const b = (await locator.boundingBox())!
+  return { x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height) }
+}
+
+test('adding tiles splits the largest one: four fill a 2x2 grid', async () => {
   const s = await launch()
   try {
     for (const title of ['Terminal', 'Files', 'System Monitor', 'Calendar']) {
@@ -95,6 +114,122 @@ test('Dock: an empty workspace can be removed, one with tiles cannot', async () 
     await expect(s.window.locator('.bt-terminal-tile')).toBeVisible()
   } finally {
     await s.cleanup()
+  }
+})
+
+test('resize, then close a tile: the other tiles keep their sizes', async () => {
+  const dir = tempDir()
+  try {
+    seedThree(dir)
+    const s = await launchIn(dir)
+    try {
+      await expect(s.window.locator('.bt-tile-slot')).toHaveCount(3)
+      const before = await box(slot(s.window, 'Alpha'))
+      const splitter = s.window.locator('.bt-splitter--row')
+      const handle = (await splitter.boundingBox())!
+      // Mid-height is the T junction with the Bravo/Charlie handle: the long line must win there.
+      const y = handle.y + handle.height / 2
+      await s.window.mouse.move(handle.x + handle.width / 2, y)
+      await s.window.mouse.down()
+      await s.window.mouse.move(handle.x + 200, y, { steps: 10 })
+      await s.window.mouse.up()
+      await expect.poll(async () => (await box(slot(s.window, 'Alpha'))).w).toBeGreaterThan(before.w + 150)
+      const alpha = await box(slot(s.window, 'Alpha'))
+
+      await slot(s.window, 'Bravo').locator('.bt-tile__close').click()
+      await expect(s.window.locator('.bt-tile-slot')).toHaveCount(2)
+      // Alpha keeps its resized width (it used to snap back to an even grid)…
+      expect(await box(slot(s.window, 'Alpha'))).toEqual(alpha)
+      // …and Charlie takes Bravo's place: the whole right column.
+      const charlie = await box(slot(s.window, 'Charlie'))
+      expect(charlie.x).toBeGreaterThan(alpha.x + alpha.w)
+      expect(charlie.y).toBe(alpha.y)
+      expect(charlie.h).toBe(alpha.h)
+      expect(s.pageErrors).toEqual([])
+    } finally {
+      await s.app.close()
+    }
+  } finally {
+    removeDir(dir)
+  }
+})
+
+test('drop on the bottom edge of the whole area: the preview is where it lands, and it stays there when tiles come and go', async () => {
+  const dir = tempDir()
+  try {
+    seedThree(dir)
+    const s = await launchIn(dir)
+    try {
+      await expect(s.window.locator('.bt-tile-slot')).toHaveCount(3)
+      const root = await box(s.window.locator('.bt-tiling-root'))
+      const header = (await slot(s.window, 'Alpha').locator('.bt-tile__header').boundingBox())!
+      await s.window.mouse.move(header.x + header.width / 2, header.y + header.height / 2)
+      await s.window.mouse.down()
+      await s.window.mouse.move(header.x + header.width / 2 + 40, header.y + 60, { steps: 5 })
+      const edge = s.window.locator('.bt-edge-drop--bottom')
+      await expect(edge).toBeVisible()
+      const strip = (await edge.boundingBox())!
+      await s.window.mouse.move(root.x + root.w / 2, strip.y + strip.height / 2, { steps: 10 })
+      // (Playwright's emulated drag sends dragover only on the next move inside the strip.)
+      await s.window.mouse.move(root.x + root.w / 2 + 20, strip.y + strip.height / 2, { steps: 2 })
+      await settledPreview(s.window)
+      const preview = s.window.locator('.bt-drop-preview')
+      await expect(preview).toHaveCount(1)
+      const previewBox = await box(preview)
+      await s.window.mouse.up()
+
+      await expect(preview).toHaveCount(0)
+      await expect(edge).toHaveCount(0)
+      const alpha = await box(slot(s.window, 'Alpha'))
+      expect(alpha).toEqual(previewBox)
+      // Full width along the bottom, one band of three tall.
+      expect(alpha.w).toBeGreaterThan(root.w - 10)
+      expect(alpha.y + alpha.h).toBeGreaterThan(root.y + root.h - 10)
+      expect(Math.abs(alpha.h - root.h / 3)).toBeLessThan(10)
+      const bravo = await box(slot(s.window, 'Bravo'))
+      const charlie = await box(slot(s.window, 'Charlie'))
+
+      // Add a tile and close it again: everything is back where it was.
+      await dock(s.window, 'Calendar').click()
+      await expect(s.window.locator('.bt-tile-slot')).toHaveCount(4)
+      expect(await box(slot(s.window, 'Alpha'))).toEqual(alpha)
+      await s.window.locator('.bt-tile-slot').filter({ hasNot: s.window.locator('.bt-tile__title', { hasText: /Alpha|Bravo|Charlie/ }) }).locator('.bt-tile__close').click()
+      await expect(s.window.locator('.bt-tile-slot')).toHaveCount(3)
+      expect(await box(slot(s.window, 'Alpha'))).toEqual(alpha)
+      expect(await box(slot(s.window, 'Bravo'))).toEqual(bravo)
+      expect(await box(slot(s.window, 'Charlie'))).toEqual(charlie)
+      expect(s.pageErrors).toEqual([])
+    } finally {
+      await s.app.close()
+    }
+  } finally {
+    removeDir(dir)
+  }
+})
+
+test('タイルを整列 re-flows the tiles into a grid in on-screen order', async () => {
+  const dir = tempDir()
+  try {
+    seedThree(dir)
+    const s = await launchIn(dir)
+    try {
+      await expect(s.window.locator('.bt-tile-slot')).toHaveCount(3)
+      await dock(s.window, 'タイルを整列').click()
+      const root = await box(s.window.locator('.bt-tiling-root'))
+      // Alpha, Bravo on the top row; Charlie across the bottom.
+      await expect.poll(async () => (await box(slot(s.window, 'Charlie'))).w).toBeGreaterThan(root.w - 10)
+      const alpha = await box(slot(s.window, 'Alpha'))
+      const bravo = await box(slot(s.window, 'Bravo'))
+      const charlie = await box(slot(s.window, 'Charlie'))
+      expect(alpha.y).toBe(bravo.y)
+      expect(alpha.x).toBeLessThan(bravo.x)
+      expect(charlie.y).toBeGreaterThan(alpha.y + alpha.h - 10)
+      expect(s.pageErrors).toEqual([])
+    } finally {
+      await s.app.close()
+    }
+  } finally {
+    removeDir(dir)
   }
 })
 

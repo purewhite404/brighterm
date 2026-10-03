@@ -71,7 +71,24 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   their tile (renderer side: `tiles/shared/subViews.ts`; side panes are
   `sidePaneId()` so their page title doesn't retitle the tile).
 - `src/renderer/tiling/` — `layout.ts` is a pure, heavily tested binary split tree
-  (`autoGrid` ≈16:9 cells, `moveTile`, `computeRects/computeSplitters`).
+  (`computeRects/computeSplitters`), edited **bspwm-style** so a user's layout is never
+  rebuilt behind their back: `insertTile` splits the largest tile along its longer side
+  (first in reading order on a tie), closing = `removeTile` (the sibling takes the space),
+  drops = `applyDrop` (`moveTile` on a tile, `moveTileToEdge` on a strip along the whole
+  area's edge, one band thick). `autoGrid` (≈16:9 cells, in `visualOrder`) runs **only**
+  for "タイルを整列" (Dock) — it used to run on every add/close and threw away
+  resizes and moves. The drag hint is `dropPreview`, computed from the real result.
+  A Dock icon can be dragged in too (`insertTileAt`: a tile's centre halves it along its
+  longer side instead of swapping; an empty workspace takes it whole); a click still uses
+  `insertTile`. The drag in progress is the store's `tileDrag` (moved tile or new one) and
+  ends on the window's `dragend`.
+- `src/renderer/dock/Dock.tsx` — the bar on the left; its menu button / Ctrl+K opens it
+  wide **over** the tiles with every icon's name (it replaced the command palette).
+  Open/closed is CSS only on the same elements, so a drag started in the open Dock
+  survives it closing (closed in a timeout after dragstart).
+- **Overlay (web views → snapshots) is decided in one place**: `App.tsx` shows it while
+  `dockOpen || tileDrag || resizing`. `overlay.show/hide` is a plain on/off in main —
+  don't call it from features directly, or one feature's hide undoes another's show.
   `TilingView` renders tiles as a **flat absolutely-positioned list keyed by tile id**
   so layout changes never remount tiles. Don't go back to nested split divs — that
   remounts everything (lost terminal sessions, collapsed file tree, reloaded iframes).
@@ -169,6 +186,12 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   web views are swapped for snapshots meanwhile, like a tile drag). Live resizing sent
   config + bounds + pty-resize IPC and re-rendered every tile per pointer move (360 moves:
   ~1,440 IPC, 2.3 s main CPU → now 6 IPC). Don't put store updates back in `pointermove`.
+- **Splitters at a T junction**: the inner handle starts right at the outer line and overlapped
+  its middle; splitters are rendered reversed so the outer (long) one is on top.
+- **Playwright's emulated tile drag** fires only `dragenter` on the first move into an element;
+  `dragover` (which sets the drop preview) comes with the next move inside it — tests move twice.
+  The preview then animates (CSS transition): read it after `settledPreview()` (helpers.ts),
+  or you get where it was a moment ago.
 - **Overlay snapshots** (`hideAllForOverlay`) are async: a generation counter stops a capture
   that finishes after `overlay.hide` from hiding its view again (a quick click on a splitter
   left a page stuck as a snapshot); `setBounds` under the overlay only records `lastBounds`.
@@ -315,6 +338,17 @@ small storage) — the plugin's own code is written by the AI each time, so this
 guard; static checks / runtime call-rate warnings were proposed and deferred by the user.
 The spec goes into the chat prompt inside a fence longer than its own ```js examples
 (`fenceFor` in promptBuilder.ts).
+
+Then (2026-10-03, later) tiling from the user's report (closing a tile reset their resizes,
+moved tiles snapped back, drops landed elsewhere than hinted): bspwm-style insert/close,
+drops on the whole area's edges, a hint showing the real result, "タイルを整列" on request,
+T-junction splitter fix. The user chose: split the largest tile on add; an edge drop on a
+tile still halves that tile (not insert-into-row).
+
+Then (2026-10-03, later) Dock icons can be dragged onto the tiles (same real-result preview);
+the command palette was removed — the Dock opens wide over the tiles with names instead
+(menu button / Ctrl+K; Escape or a click outside closes). The user chose: a new tile dropped
+on a tile's centre halves it along its longer side; a click still splits the largest tile.
 
 Known gaps / possible next steps:
 - Folder bar: no breadcrumb (clickable segments to go up) yet.

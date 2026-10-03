@@ -1,6 +1,9 @@
 import { create } from 'zustand'
 import type { AppConfig, Card, SystemMemorySnapshot, TileInstance, Workspace } from '@shared/types'
-import { autoGrid, listTileIds, moveTile, resizeAt, type DropZone, type NodePath } from '../tiling/layout'
+import { applyDrop, autoGrid, insertTile, insertTileAt, removeTile, resizeAt, visualOrder, type Drop, type NodePath } from '../tiling/layout'
+
+/** A tile drag in progress: a tile already in the layout (by its header), or a new one (from the Dock). */
+export type TileDrag = { kind: 'tile'; tileId: string } | { kind: 'new'; tile: Omit<TileInstance, 'id'> }
 
 export interface TileRuntimeState {
   titleOverride?: string
@@ -14,10 +17,14 @@ interface AppState {
   config: AppConfig | null
   /** Ephemeral, non-persisted per-tile state (snapshot, live title, memory). */
   runtime: Record<string, TileRuntimeState>
-  paletteOpen: boolean
+  /** The Dock is opened wide (icons with names), over the tiles. */
+  dockOpen: boolean
+  tileDrag: TileDrag | null
+  /** A splitter is being dragged. */
+  resizing: boolean
   memorySnapshot: SystemMemorySnapshot | null
   hqCards: Card[]
-  /** Width / height of the tiling area, kept current by TilingView; drives the auto grid. */
+  /** Width / height of the tiling area, kept current by TilingView; decides which way a new tile splits and the grid of "arrange". */
   viewportAspect: number
 
   load: () => Promise<void>
@@ -25,21 +32,26 @@ interface AppState {
   createWorkspace: (name: string, icon: string) => string
   deleteWorkspace: (workspaceId: string) => void
 
-  /** Add a tile and re-flow the workspace into a grid of roughly 16:9 cells. */
-  addTile: (tile: Omit<TileInstance, 'id'>) => string
+  /** Add a tile by splitting the largest one along its longer side; the rest of the layout stays as it is. */
+  addTile: (tile: Omit<TileInstance, 'id'>, drop?: Drop) => string
   closeTile: (tileId: string) => void
-  /** Close tiles in any workspace (each affected workspace re-flows into a grid). */
+  /** Close tiles in any workspace; each one's sibling takes its space, nothing else moves. */
   closeTiles: (tileIds: string[]) => void
+  /** Re-flow the active workspace into a grid of roughly 16:9 cells, keeping the on-screen order. Only on request. */
+  arrangeTiles: () => void
   /** Shallow-merge into a tile's persisted config (whichever workspace it's in), e.g. a Browser's current URL. */
   updateTileConfig: (tileId: string, patch: Record<string, unknown>) => void
   resizeSplitAt: (path: NodePath, ratio: number) => void
-  moveTileTo: (tileId: string, targetTileId: string, zone: DropZone) => void
+  dropTile: (tileId: string, drop: Drop) => void
   setViewportAspect: (aspect: number) => void
   /** Shallow-merge into the app config, in memory and on disk. */
   updateConfig: (patch: Partial<AppConfig>) => void
 
   setTileRuntime: (tileId: string, patch: Partial<TileRuntimeState>) => void
-  setPaletteOpen: (open: boolean) => void
+  setDockOpen: (open: boolean) => void
+  startTileDrag: (drag: TileDrag) => void
+  endTileDrag: () => void
+  setResizing: (resizing: boolean) => void
   setMemorySnapshot: (snapshot: SystemMemorySnapshot) => void
   setHqCards: (cards: Card[]) => void
   publishHqCard: (card: Card) => void
@@ -73,7 +85,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   loaded: false,
   config: null,
   runtime: {},
-  paletteOpen: false,
+  dockOpen: false,
+  tileDrag: null,
+  resizing: false,
   memorySnapshot: null,
   hqCards: [],
   viewportAspect: 16 / 9,
@@ -118,7 +132,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     persist(next)
   },
 
-  addTile: (tile) => {
+  addTile: (tile, drop) => {
     const { config, viewportAspect } = get()
     if (!config) return ''
     const ws = activeWorkspace(get())
@@ -126,7 +140,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     const id = genId('tile')
     const instance: TileInstance = { ...tile, id }
-    const layout = autoGrid([...listTileIds(ws.layout), id], viewportAspect)
+    const layout = drop ? insertTileAt(ws.layout, id, drop, viewportAspect) : insertTile(ws.layout, id, viewportAspect)
 
     const next = updateWorkspace(config, ws.id, (w) => ({
       ...w,
@@ -141,7 +155,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   closeTile: (tileId) => get().closeTiles([tileId]),
 
   closeTiles: (tileIds) => {
-    const { config, viewportAspect } = get()
+    const { config } = get()
     if (!config || tileIds.length === 0) return
     const closing = new Set(tileIds)
     const next: AppConfig = {
@@ -150,10 +164,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         if (!Object.keys(w.tiles).some((id) => closing.has(id))) return w
         const tiles = { ...w.tiles }
         for (const id of closing) delete tiles[id]
-        const layout = autoGrid(
-          listTileIds(w.layout).filter((id) => !closing.has(id)),
-          viewportAspect
-        )
+        let layout = w.layout
+        for (const id of closing) layout = removeTile(layout, id)
         return { ...w, layout, tiles }
       })
     }
@@ -166,6 +178,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       for (const tileId of tileIds) delete runtime[tileId]
       return { runtime }
     })
+  },
+
+  arrangeTiles: () => {
+    const { config, viewportAspect } = get()
+    if (!config) return
+    const ws = activeWorkspace(get())
+    if (!ws || ws.layout === null) return
+    const layout = autoGrid(visualOrder(ws.layout), viewportAspect)
+    const next = updateWorkspace(config, ws.id, (w) => ({ ...w, layout }))
+    set({ config: next })
+    persist(next)
   },
 
   updateTileConfig: (tileId, patch) => {
@@ -194,12 +217,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     persist(next)
   },
 
-  moveTileTo: (tileId, targetTileId, zone) => {
+  dropTile: (tileId, drop) => {
     const { config } = get()
     if (!config) return
     const ws = activeWorkspace(get())
     if (!ws) return
-    const layout = moveTile(ws.layout, tileId, targetTileId, zone)
+    const layout = applyDrop(ws.layout, tileId, drop)
     if (layout === ws.layout) return
     const next = updateWorkspace(config, ws.id, (w) => ({ ...w, layout }))
     set({ config: next })
@@ -225,7 +248,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     })
   },
 
-  setPaletteOpen: (open) => set({ paletteOpen: open }),
+  setDockOpen: (open) => set({ dockOpen: open }),
+  startTileDrag: (drag) => set({ tileDrag: drag }),
+  endTileDrag: () => set({ tileDrag: null }),
+  setResizing: (resizing) => set({ resizing }),
 
   setMemorySnapshot: (snapshot) => set({ memorySnapshot: snapshot }),
 

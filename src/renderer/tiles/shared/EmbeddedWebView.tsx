@@ -4,7 +4,7 @@ import { useEmbeddedWebView, type WebViewSource } from './useEmbeddedWebView'
 /**
  * The DOM placeholder of a web view (see useEmbeddedWebView). The page itself
  * is a WebContentsView the main process draws exactly over this div; while
- * it's suspended or hidden behind an overlay (palette, drag & drop), the last
+ * it's suspended or hidden behind an overlay (open Dock, drag & drop), the last
  * screenshot is shown here instead.
  */
 export function EmbeddedWebView({

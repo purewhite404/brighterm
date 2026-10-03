@@ -1,9 +1,9 @@
-import { memo, useContext, useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import { useAppStore, selectActiveWorkspace } from '../store/appStore'
 import { resolveTileComponent } from '../tiles/registry'
 import { Icon } from '../ui/Icon'
 import { formatTileMemory } from '../ui/formatBytes'
-import { TileDragContext, TILE_DRAG_MIME } from './tileContexts'
+import { TILE_DRAG_MIME } from './tileContexts'
 import { tileUsage } from './tileUsage'
 
 /**
@@ -19,7 +19,8 @@ export const TileChrome = memo(function TileChrome({ tileId }: { tileId: string 
   const memoryLabel = useAppStore((s) => formatTileMemory(tileUsage(s.memorySnapshot?.tiles, tileId).memoryBytes))
   const cpuPercent = useAppStore((s) => tileUsage(s.memorySnapshot?.tiles, tileId).cpuPercent)
   const closeTile = useAppStore((s) => s.closeTile)
-  const drag = useContext(TileDragContext)
+  const dragging = useAppStore((s) => s.tileDrag?.kind === 'tile' && s.tileDrag.tileId === tileId)
+  const startTileDrag = useAppStore((s) => s.startTileDrag)
 
   // Only the component type matters here (a tile's own config is read inside it through useTileConfig).
   const Component = useMemo(() => (tile ? resolveTileComponent(tile) : null), [tile?.kind, tile?.typeId, tile?.config?.pluginKind]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -32,15 +33,14 @@ export const TileChrome = memo(function TileChrome({ tileId }: { tileId: string 
   return (
     <div className="bt-tile" onMouseDownCapture={() => void window.api.tile.focus(tileId)}>
       <div
-        className={`bt-tile__header${drag.draggingTileId === tileId ? ' bt-tile__header--dragging' : ''}`}
+        className={`bt-tile__header${dragging ? ' bt-tile__header--dragging' : ''}`}
         draggable
-        title="ドラッグして別のタイルの上下左右（入れ替えは中央）にドロップ"
+        title="ドラッグして別のタイルの上下左右（入れ替えは中央）か、画面の端（端いっぱいに置く）にドロップ"
         onDragStart={(e) => {
           e.dataTransfer.setData(TILE_DRAG_MIME, tileId)
           e.dataTransfer.effectAllowed = 'move'
-          drag.startDrag(tileId)
+          startTileDrag({ kind: 'tile', tileId })
         }}
-        onDragEnd={() => drag.endDrag()}
       >
         <Icon name={tile.icon ?? 'file'} size={13} />
         <span className="bt-tile__title" title={title}>
