@@ -1,7 +1,7 @@
 {
   "id": "example-counter",
   "name": "Example Counter",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "icon": "activity",
   "kind": "app",
   "entry": "index.html",

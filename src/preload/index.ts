@@ -81,6 +81,11 @@ const api = {
     showItem: (path: string): Promise<void> => ipcRenderer.invoke(IPC.shellShowItem, path)
   },
 
+  /** Through main: navigator.clipboard fails whenever the window doesn't have the focus. */
+  clipboard: {
+    writeText: (text: string): Promise<void> => ipcRenderer.invoke(IPC.clipboardWriteText, text)
+  },
+
   pty: {
     create: (
       tileId: string,

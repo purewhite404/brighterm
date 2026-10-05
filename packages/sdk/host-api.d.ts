@@ -75,7 +75,11 @@ export interface BrightermFs {
 }
 
 export interface BrightermNet {
-  /** Only reaches hosts listed in this plugin's manifest `permissions: [{type:"network", domains:[...]}]`. */
+  /**
+   * https:// only, and only hosts listed in this plugin's manifest
+   * `permissions: [{type:"network", domains:[...]}]` (redirects too). No CORS needed.
+   * Times out after 30 s; responses over 10 MB are refused.
+   */
   fetch(url: string, init?: { method?: string; headers?: Record<string, string>; body?: string }): Promise<{
     status: number
     text: string

@@ -1,6 +1,7 @@
-import { BaseWindow, WebContentsView, session } from 'electron'
+import { BaseWindow, WebContentsView, session, shell } from 'electron'
 import type { Rect } from '@shared/types'
 import { perfMark } from '../perf'
+import { isSafeExternalUrl, isWebUrl } from '@shared/urlSafety'
 
 /**
  * Owns every WebContentsView backing a "web" or "plugin" tile: creation,
@@ -172,9 +173,13 @@ export class ViewManager {
     view.webContents.once('did-finish-load', () => perfMark(`view-loaded:${entry.tileId}`))
     view.webContents.on('did-navigate-in-page', reportNavigation)
 
-    // Links that try to open a new window load in the same tile instead.
+    // Links that try to open a new window load in the same tile instead — web pages only
+    // (main's loadURL isn't bound by the page's own rules: a site could otherwise open
+    // file:// pages here). Mail links go to the OS's mail app; anything else nowhere.
     view.webContents.setWindowOpenHandler(({ url }) => {
-      void view.webContents.loadURL(url)
+      if (isWebUrl(url)) void view.webContents.loadURL(url)
+      else if (isSafeExternalUrl(url)) void shell.openExternal(url)
+      else console.warn(`[ViewManager] refused to open ${url.slice(0, 200)} from tile ${entry.tileId}`)
       return { action: 'deny' }
     })
 

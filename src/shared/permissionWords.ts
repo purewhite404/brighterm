@@ -1,4 +1,4 @@
-import type { PluginPermission } from '@shared/types'
+import type { PluginPermission } from './types'
 
 /** What a plugin permission lets it do, in words the user can approve or not. */
 export function describePermission(permission: PluginPermission): string {

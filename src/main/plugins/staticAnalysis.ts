@@ -1,7 +1,8 @@
 /**
  * Best-effort static scan of a plugin's JS/HTML source, run before it's ever
- * executed. This is NOT a sandbox substitute — the iframe sandbox +
- * declared-domains-only fetch bridge are what actually contain a plugin.
+ * executed. This is NOT a sandbox substitute — the iframe sandbox, the
+ * plugin's CSP (pluginCsp.ts) and the declared-domains-only fetch bridge
+ * are what actually contain a plugin.
  * This scan exists to reject obviously-wrong or obviously-hostile code
  * early, with a clear message the AI (or the user) can act on, rather than
  * silently letting it fail once loaded — or worse, having something subtle

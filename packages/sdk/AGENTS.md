@@ -29,7 +29,7 @@
 {
   "id": "photo-viewer",
   "name": "Photo Viewer",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "icon": "image",
   "kind": "app",
   "entry": "index.html",
@@ -60,7 +60,7 @@
 |---|---|---|
 | `id` | ✓ | 小文字とハイフンのみ（例: `photo-viewer`）。インストール先のフォルダ名になります |
 | `name` | ✓ | 表示名 |
-| `version` | ✓ | `1.0.0` のようなセマンティックバージョン |
+| `version` | ✓ | `0.1.0` のようなセマンティックバージョン |
 | `icon` | ✓ | アイコン名（`note`, `image`, `list`, `chart` など一般的な英単語） |
 | `kind` | ✓ | `"web"`（既存サイトの埋め込み）または `"app"`（自作のミニアプリ） |
 | `url` | kind:"web" のとき必須 | 埋め込むページのURL |
@@ -69,7 +69,9 @@
 | `description` | - | 1〜2文の説明 |
 
 ### permissions の種類
-- `{ "type": "network", "domains": ["api.example.com"] }` — この一覧のドメインにしか `fetch` できません
+- `{ "type": "network", "domains": ["api.example.com"] }` — この一覧のドメインとだけ通信できます
+  （天気・翻訳などの API や、そこの画像）。ほかのサイトへの通信は、`fetch` も画像も
+  すべてブロックされます
 - `{ "type": "storage" }` — このプラグイン専用の KVS
 - `{ "type": "folders" }` — ユーザーがフォルダピッカーで選んだフォルダだけ読み書きできます
 - `{ "type": "notifications" }` — デスクトップ通知
@@ -80,6 +82,11 @@
 - `index.html` は依存パッケージを一切使わず、`<script src="main.js">` のような
   相対パスの読み込みだけにしてください（外部 CDN からの読み込みは禁止です。
   サンドボックスの CSP が外部スクリプトをブロックします）。
+- 外部の API は `window.brighterm.net.fetch(url, init)` で呼んでください（manifest の
+  `network` に書いた https のドメインだけ）。ふつうの `fetch` は、相手が CORS を許可して
+  いるときしか動きません。画像・動画は `network` に書いたドメインの https URL なら
+  `<img src>` などにそのまま使えます。`<form>` の送信先に外部サイトは使えません
+  （`submit` イベントで `preventDefault()` して、自分で処理してください）。
 - `window.brighterm` というグローバルオブジェクトが Host API です。**関数の正確な
   引数と戻り値は、この仕様書の後ろに付いている `host-api.d.ts` のとおりにしてくだ
   さい。**そこにない関数は存在しません。主なもの:

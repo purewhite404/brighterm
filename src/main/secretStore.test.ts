@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { SecretStore, type CryptoAdapter } from './secretStore'
@@ -55,10 +55,11 @@ describe('SecretStore', () => {
     expect(store.get('anthropic')).toBe('key-b')
   })
 
-  it('falls back to plaintext when encryption is unavailable', () => {
+  it('refuses to save a key in plain text when encryption is unavailable', () => {
     const store = new SecretStore(filePath, fakeCrypto(false))
-    store.set('openai', 'sk-test')
-    expect(store.get('openai')).toBe('sk-test')
+    expect(() => store.set('openai', 'sk-test')).toThrow(/暗号化.*保存できません/)
+    expect(existsSync(filePath)).toBe(false)
+    expect(store.get('openai')).toBeNull()
   })
 
   it('persists across a new instance pointed at the same file', () => {

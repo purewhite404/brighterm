@@ -1,8 +1,10 @@
-import { BaseWindow, WebContentsView, screen, shell } from 'electron'
+import { BaseWindow, WebContentsView, screen, shell, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron'
 import { join } from 'node:path'
 import { is } from './utils/env'
 import { perfMark } from './perf'
 import { tileIdOfPluginFrame } from '@shared/pluginFrame'
+import { isSafeExternalUrl } from '@shared/urlSafety'
+import { pluginFrameMayNavigate, shellMayNavigate } from './security'
 
 /** Sends an event to the renderer (a no-op while there's no window). */
 export type Send = (channel: string, ...args: unknown[]) => void
@@ -13,6 +15,14 @@ export type Send = (channel: string, ...args: unknown[]) => void
  */
 let mainWindow: BaseWindow | null = null
 let shellView: WebContentsView | null = null
+
+/** Only the shell page's main frame may call main over IPC (see guardIpcSenders in security.ts). */
+export function isShellSender(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
+  const wc = shellView?.webContents
+  if (!wc || wc.isDestroyed() || event.sender !== wc) return false
+  const frame = event.senderFrame
+  return !!frame && frame.frameTreeNodeId === wc.mainFrame.frameTreeNodeId
+}
 
 export function getMainWindow(): BaseWindow | null {
   return mainWindow
@@ -54,10 +64,12 @@ export function createMainWindow(): void {
     webPreferences: {
       preload: join(__dirname, '../preload/index.cjs'),
       contextIsolation: true,
-      sandbox: false,
+      // Sandboxed: the preload only needs contextBridge + ipcRenderer.
+      sandbox: true,
       nodeIntegration: false
     }
   })
+  lockNavigation(shellView.webContents)
   mainWindow.contentView.addChildView(shellView)
   resizeShellView()
 
@@ -80,10 +92,33 @@ export function createMainWindow(): void {
     else mainWindow?.show()
   })
 
-  // Any link a tile or the shell wants to open externally goes to the OS browser.
+  // A link the shell or a plugin <iframe> opens in a new window goes to the OS browser —
+  // web pages and mail links only: a file:// / UNC / custom-protocol URL would start a program.
   shellView.webContents.setWindowOpenHandler(({ url }) => {
-    void shell.openExternal(url)
+    if (isSafeExternalUrl(url)) void shell.openExternal(url)
+    else console.warn(`[window] refused to open ${url.slice(0, 200)}`)
     return { action: 'deny' }
+  })
+}
+
+/**
+ * The shell page holds window.api (terminals, any file), so it never shows another page:
+ * a file or link dropped on the window would otherwise replace it — with the API. Plugin
+ * <iframe>s stay on their own plugin-app:// pages.
+ */
+function lockNavigation(wc: WebContents): void {
+  wc.on('will-frame-navigate', (event) => {
+    const frame = event.frame
+    if (event.isMainFrame) {
+      if (shellMayNavigate(wc.getURL(), event.url)) return
+    } else if (frame) {
+      // The plugin's own <iframe>: the ancestor right under the shell page.
+      let owner = frame
+      while (owner.parent && owner.parent.frameTreeNodeId !== wc.mainFrame.frameTreeNodeId) owner = owner.parent
+      if (pluginFrameMayNavigate(owner.url, event.url)) return
+    }
+    event.preventDefault()
+    console.warn(`[window] blocked navigation to ${event.url.slice(0, 200)}`)
   })
 }
 

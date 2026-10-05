@@ -1,7 +1,8 @@
-import { app, ipcMain, nativeTheme, shell } from 'electron'
+import { app, clipboard, ipcMain, nativeTheme, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { AppConfig, WebTheme } from '@shared/types'
 import type { ConfigStore } from './configStore'
+import { isSafeExternalUrl } from '@shared/urlSafety'
 
 /** Tells every embedded page which color scheme to prefer (takes effect immediately). */
 export function applyWebTheme(theme: WebTheme): void {
@@ -32,7 +33,12 @@ export function registerAppIpc(
   })
   ipcMain.handle(IPC.appIsPackaged, () => app.isPackaged)
 
-  ipcMain.handle(IPC.shellOpenExternal, (_event, url: string) => shell.openExternal(url))
+  // Card / calendar links: web pages and mail links only (see urlSafety.ts).
+  ipcMain.handle(IPC.shellOpenExternal, (_event, url: string) => {
+    if (!isSafeExternalUrl(url)) throw new Error(`この URL は開けません（http / https / mailto だけ開けます）: ${String(url).slice(0, 200)}`)
+    return shell.openExternal(url)
+  })
   ipcMain.handle(IPC.shellOpenPath, (_event, path: string) => shell.openPath(path))
   ipcMain.handle(IPC.shellShowItem, (_event, path: string) => shell.showItemInFolder(path))
+  ipcMain.handle(IPC.clipboardWriteText, (_event, text: string) => clipboard.writeText(String(text)))
 }

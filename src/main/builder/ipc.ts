@@ -8,7 +8,9 @@ import type { ConfigStore } from '../configStore'
 import type { PluginHost } from '../plugins/pluginHost'
 import type { SecretStore } from '../secretStore'
 import type { Send } from '../window'
-import { AgentToolRunner, AGENT_TOOL_DEFS } from './agentTools'
+import { AgentToolRunner, AGENT_TOOL_DEFS, type ConfirmInstall } from './agentTools'
+import { describePermission } from '@shared/permissionWords'
+import { getMainWindow } from '../window'
 import { OpenAiAgentProvider } from './providers/openai'
 import { buildAgentSystemPrompt } from './systemPrompt'
 
@@ -56,6 +58,25 @@ function copyDir(from: string, to: string): void {
   }
 }
 
+/** The agent's install waits for the user: what it is and what it may do. */
+const confirmAgentInstall: ConfirmInstall = async (manifest) => {
+  const permissions = manifest.permissions.length
+    ? manifest.permissions.map((p) => `・${describePermission(p)}`).join('\n')
+    : '・特別な権限は使いません'
+  const options = {
+    type: 'question' as const,
+    buttons: ['インストールする', 'やめる'],
+    defaultId: 1,
+    cancelId: 1,
+    title: 'AI Builder',
+    message: `AI が作ったプラグイン「${manifest.name}」（${manifest.id} ${manifest.version}）をインストールしますか？`,
+    detail: `このプラグインができること:\n${permissions}`
+  }
+  const win = getMainWindow()
+  const { response } = win ? await dialog.showMessageBox(win, options) : await dialog.showMessageBox(options)
+  return response === 0
+}
+
 async function runAgent(
   { configStore, secretStore, pluginHost, send }: Parameters<typeof registerBuilderIpc>[0],
   request: string
@@ -77,7 +98,7 @@ async function runAgent(
   }
 
   const stagingDir = mkdtempSync(join(tmpdir(), 'brighterm-agent-'))
-  const toolRunner = new AgentToolRunner(pluginHost, stagingDir)
+  const toolRunner = new AgentToolRunner(pluginHost, stagingDir, confirmAgentInstall)
   const provider = new OpenAiAgentProvider()
 
   try {

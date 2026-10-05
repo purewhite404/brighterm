@@ -1,7 +1,7 @@
 {
   "id": "slack",
   "name": "Slack",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "icon": "slack",
   "kind": "web",
   "url": "https://app.slack.com/client",

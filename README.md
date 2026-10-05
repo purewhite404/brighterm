@@ -101,7 +101,9 @@ plugins-builtin/      … 同梱プラグイン(起動時に自動インスト�
 3. **kind:"app" の実行環境**: `contextIsolation`・`sandbox` を効かせた
    `<iframe>` の中で動きます。`window.brighterm` という Host API だけを
    postMessage 経由で提供し、宣言された権限(`storage`/`folders`/`network`/
-   `notifications`/`hqCards`)以外にはアクセスできません。
+   `notifications`/`hqCards`)以外にはアクセスできません。プラグインのページには
+   CSP が付き、`network` で宣言した https のドメイン以外とは(`fetch` も画像も)
+   通信できません。
 4. **フォルダのパスバー**: `folders` 権限のプラグインが `fs.showFolderBar()` を呼ぶと、
    タイル上部にアドレスバーが出ます(Notes はこれで保存先を切り替えます)。
    パスを入力して Enter、入力中はサブフォルダの候補(↑↓・Tab で補完)、`~` はホーム、
@@ -125,7 +127,8 @@ plugins-builtin/      … 同梱プラグイン(起動時に自動インスト�
 - **任意: API エージェントモード**(全自動、要 API キー)
   OpenAI / OpenAI 互換(Ollama など)の API キーを設定すると、AI がツール
   (`write_staging_file` → `validate_staged_bundle` → `install_staged_bundle`)
-  を自分で呼び出し、確認なしで最後まで実行します。Anthropic / Gemini は
+  を自分で呼び出して進めます。インストールの直前にだけ、プラグインの名前と
+  使う権限を示す確認ダイアログが出ます。Anthropic / Gemini は
   型は用意済みですが未実装です(選ぶとその旨のエラーが表示されます)。
 - どちらのモードでも、`packages/sdk/AGENTS.md` が唯一の仕様書です。
   「上級者向け」の「AI キットを書き出す」は、この仕様一式(型定義・見本を含む)
@@ -147,7 +150,40 @@ plugins-builtin/      … 同梱プラグイン(起動時に自動インスト�
    自動でカードとして表示されます(5分ごとに更新)。
 
 Client ID/Secret と refresh token は `safeStorage`(Windows: DPAPI, macOS:
-Keychain, Linux: libsecret)で暗号化して保存されます。
+Keychain, Linux: libsecret)で暗号化して保存されます。暗号化が使えない環境
+(キーリングのない Linux など)では、平文で保存せずエラーになります。
+認証は PKCE と `state` 付きのループバック方式です。
+
+## セキュリティ
+
+Brighterm は自分のパソコンで使う道具です。ターミナルと Files タイルは、
+意図して OS のユーザー権限そのままで動きます。そのうえで、外から来るものは
+次のように閉じ込めています。
+
+- **プラグイン(AI が書いたコード)**: サンドボックス化した `<iframe>`(独自の
+  origin、Node.js なし)で動き、宣言した権限の Host API しか使えません。
+  - フォルダは、ユーザーが選んだフォルダの中だけ(`..`・別ドライブ・UNC パスは拒否)
+  - 通信は、宣言した https のドメインだけ(CSP + main プロセス側の確認。リダイレクト先も確認)
+  - 自分のページから外部サイトへ移ることはできず、`window.open` や HQ カードで
+    開けるのは http(s) と mailto だけ(`file://` やカスタムプロトコルでプログラムを
+    起動することはできません)
+- **Web タイル(ブラウザ・メール・Web プラグイン)**: Node.js も preload もない
+  サンドボックスのページです。通知・カメラ・マイク・位置情報などは、サイトが
+  求めたときに確認ダイアログが出ます(答えはアプリ終了まで覚えます)。それ以外の
+  権限と外部アプリの起動は拒否します。
+- **アプリ本体の画面(shell)**: `contextIsolation` + `sandbox`。ほかのページへ
+  移動することはなく(ファイルやリンクをウィンドウにドロップしても置き換わりません)、
+  main プロセスへの IPC はこの画面のメインフレームからしか受け付けません。
+- **秘密情報**: API キーと Google のトークンは OS の暗号化(`safeStorage`)でだけ保存します。
+
+既知の制限:
+- プラグインに許可したフォルダの中にユーザーが置いたシンボリックリンク・
+  ジャンクションは、その先までたどります(プラグイン自身はリンクを作れません)。
+- `window.open` で開いた http(s) のページは OS の既定のブラウザで開きます。
+- Electron の更新は自動ではありません。依存パッケージは `npm audit` で確認してください。
+
+脆弱性を見つけた場合は、公開の issue ではなく GitHub の
+「Security → Report a vulnerability」から非公開でお知らせください。
 
 ## 既知の制約・今後の課題
 

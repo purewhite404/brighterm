@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
-import type { CryptoAdapter } from './cryptoAdapter'
+import { encryptOrThrow, type CryptoAdapter } from './cryptoAdapter'
 
 /**
  * A tiny generic encrypted key/value store for API keys (AI Builder
@@ -18,11 +18,10 @@ export class SecretStore {
   ) {}
 
   private readAll(): Record<string, string> {
-    if (!existsSync(this.filePath)) return {}
+    // Without encryption nothing can have been saved (see encryptOrThrow) — nor read back.
+    if (!existsSync(this.filePath) || !this.crypto.isAvailable()) return {}
     try {
-      const raw = readFileSync(this.filePath)
-      const json = this.crypto.isAvailable() ? this.crypto.decrypt(raw) : raw.toString('utf-8')
-      return JSON.parse(json)
+      return JSON.parse(this.crypto.decrypt(readFileSync(this.filePath)))
     } catch (err) {
       console.error('[SecretStore] failed to read secrets file:', err)
       return {}
@@ -30,9 +29,7 @@ export class SecretStore {
   }
 
   private writeAll(data: Record<string, string>): void {
-    const json = JSON.stringify(data)
-    const buf = this.crypto.isAvailable() ? this.crypto.encrypt(json) : Buffer.from(json, 'utf-8')
-    writeFileSync(this.filePath, buf)
+    writeFileSync(this.filePath, encryptOrThrow(this.crypto, JSON.stringify(data)))
   }
 
   get(key: string): string | null {

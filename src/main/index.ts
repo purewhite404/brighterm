@@ -5,7 +5,8 @@ import { ConfigStore } from './configStore'
 import { createSafeStorageCrypto } from './cryptoAdapter'
 import { SecretStore } from './secretStore'
 import { applyWebTheme, registerAppIpc } from './appIpc'
-import { createMainWindow, focusMainWindow, getMainWindow, inBackground, pluginFramePids, send, shellProcessId } from './window'
+import { createMainWindow, focusMainWindow, getMainWindow, inBackground, isShellSender, pluginFramePids, send, shellProcessId } from './window'
+import { guardIpcSenders, installSecurityPolicies } from './security'
 import { ViewManager } from './views/viewManager'
 import { registerViewsIpc } from './views/ipc'
 import { startMemoryLoop } from './views/memoryLoop'
@@ -115,6 +116,8 @@ function boot(): void {
     viewManager = views
     ptyManager = ptys
 
+    installSecurityPolicies(getMainWindow)
+    guardIpcSenders(ipcMain, isShellSender)
     timeIpcHandlers(ipcMain)
     registerAppIpc(configStore, startupWebTheme)
     registerViewsIpc(views, (tileId) => {

@@ -39,9 +39,18 @@ test('under test the window opens off screen, without the focus, and still paint
     })
     expect(state).toEqual({ visible: true, focused: false, overlapsADisplay: false })
     // Off screen must not mean occluded (index.ts turns that check off): the shell still paints.
+    // Retried: since Electron 44 the first capture right after showing can fail ("UnknownVizError")
+    // while other apps are starting (parallel workers); 0.2 s later it works.
     const shot = await s.app.evaluate(async ({ BaseWindow }) => {
       const shell = BaseWindow.getAllWindows()[0].contentView.children[0] as Electron.WebContentsView
-      return shell.webContents.capturePage().then((image) => image.isEmpty())
+      for (let attempt = 0; ; attempt++) {
+        try {
+          return (await shell.webContents.capturePage()).isEmpty()
+        } catch (err) {
+          if (attempt >= 20) throw err
+          await new Promise((r) => setTimeout(r, 100))
+        }
+      }
     })
     expect(shot).toBe(false)
   } finally {

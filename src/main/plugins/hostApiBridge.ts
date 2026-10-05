@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, readdirSync, statSync, unlinkSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { homedir } from 'node:os'
 import type { PluginHost } from './pluginHost'
@@ -8,6 +8,8 @@ import type { Card } from '@shared/types'
 import { buildPluginFileUrl } from './pluginFileUrl'
 import { normalizeFolderInput, samePath } from './folderInput'
 import { handleId as unwrapHandleId } from './handleUtil'
+import { isWebUrl } from '@shared/urlSafety'
+import { isInside } from '../utils/pathGuard'
 
 /**
  * Implements the `window.brighterm` Host API's actual behavior, on the main
@@ -17,6 +19,29 @@ import { handleId as unwrapHandleId } from './handleUtil'
  * Error messages are Japanese and say how to fix the call: the plugin tile
  * shows them to the user, and the fix request hands them to the AI.
  */
+
+const NET_MAX_REDIRECTS = 5
+const NET_TIMEOUT_MS = 30_000
+const NET_MAX_BYTES = 10 * 1024 * 1024
+
+/** The body as text, refusing more than `maxBytes` (a plugin can't make main buffer gigabytes). */
+async function readTextLimited(response: Response, maxBytes: number): Promise<string> {
+  if (!response.body) return ''
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > maxBytes) {
+      await reader.cancel()
+      throw new Error(`応答が大きすぎます（${Math.round(maxBytes / 1024 / 1024)} MB まで）`)
+    }
+    chunks.push(value)
+  }
+  return Buffer.concat(chunks).toString('utf-8')
+}
 
 export class PermissionDeniedError extends Error {
   constructor(pluginId: string, permission: string) {
@@ -156,15 +181,13 @@ export class PluginHostApiBridge {
     return entry.path
   }
 
-  /** Resolves relativePath against the handle's root, rejecting any escape via "..". */
+  /** Resolves relativePath against the handle's root, rejecting any escape ("..", another drive, a UNC path). */
   private resolveWithinFolder(rootPath: string, relativePath: unknown): string {
     if (typeof relativePath !== 'string') {
       throw new Error(`2つ目の引数には、選んだフォルダからの相対パス（例: "photo.jpg"）を文字列で渡してください（受け取った値: ${String(relativePath)}）`)
     }
     const target = resolve(rootPath, relativePath)
-    const rel = relative(rootPath, target)
-    const escapes = rel === '' ? false : rel.startsWith('..') || rel.split(/[\\/]/).includes('..')
-    if (escapes) {
+    if (!isInside(rootPath, target)) {
       throw new Error(`選んだフォルダの外にはアクセスできません: ${relativePath}`)
     }
     return target
@@ -295,22 +318,60 @@ export class PluginHostApiBridge {
 
   // ---- network (declared domains only) ----
 
+  /**
+   * https to the manifest's `network` domains only — checked again on every redirect
+   * (a declared site redirecting elsewhere must not carry the request, and its body, there).
+   */
   async netFetch(
     pluginId: string,
     url: string,
     init?: { method?: string; headers?: Record<string, string>; body?: string }
   ): Promise<{ status: number; text: string }> {
     const manifest = this.manifestOf(pluginId)
-    const hostname = new URL(url).hostname.toLowerCase()
     const allowedDomains = manifest.permissions
       .filter((p): p is Extract<typeof p, { type: 'network' }> => p.type === 'network')
       .flatMap((p) => p.domains.map((d) => d.toLowerCase()))
-    if (!allowedDomains.includes(hostname)) {
-      throw new Error(`"${hostname}" との通信は許可されていません。manifest.json の permissions の network の domains に追加してください`)
+    const checked = (target: string): URL => {
+      let parsed: URL
+      try {
+        parsed = new URL(target)
+      } catch {
+        throw new Error(`URL の形が正しくありません: ${String(target).slice(0, 200)}`)
+      }
+      if (parsed.protocol !== 'https:') {
+        throw new Error(`https:// で始まる URL とだけ通信できます（受け取った値: ${String(target).slice(0, 200)}）`)
+      }
+      const hostname = parsed.hostname.toLowerCase()
+      if (!allowedDomains.includes(hostname)) {
+        throw new Error(`"${hostname}" との通信は許可されていません。manifest.json の permissions の network の domains に追加してください`)
+      }
+      return parsed
     }
-    const response = await fetch(url, init)
-    const text = await response.text()
-    return { status: response.status, text }
+
+    let target = checked(String(url))
+    let method = init?.method
+    let body = init?.body
+    for (let hop = 0; hop <= NET_MAX_REDIRECTS; hop++) {
+      const response = await fetch(target.toString(), {
+        method,
+        headers: init?.headers,
+        body,
+        redirect: 'manual',
+        signal: AbortSignal.timeout(NET_TIMEOUT_MS)
+      })
+      const location = response.headers.get('location')
+      if (response.status >= 300 && response.status < 400 && location) {
+        target = checked(new URL(location, target).toString())
+        // As browsers do: 303 (and 301/302 after a POST) continue as a GET without the body.
+        if (response.status === 303 || ((response.status === 301 || response.status === 302) && method && method.toUpperCase() === 'POST')) {
+          method = 'GET'
+          body = undefined
+        }
+        continue
+      }
+      return { status: response.status, text: await readTextLimited(response, NET_MAX_BYTES) }
+    }
+    throw new Error(`リダイレクトが多すぎます（${NET_MAX_REDIRECTS} 回まで）: ${String(url).slice(0, 200)}`)
   }
 
   // ---- notifications ----
@@ -325,6 +386,10 @@ export class PluginHostApiBridge {
 
   publishCard(pluginId: string, card: Omit<Card, 'source'>): void {
     this.requirePermission(pluginId, 'hqCards')
+    const url = card?.action?.url
+    if (url !== undefined && !isWebUrl(url)) {
+      throw new Error(`カードの action.url には http:// か https:// で始まる URL だけを指定できます（受け取った値: ${String(url).slice(0, 200)}）`)
+    }
     this.onPublishCard({ ...card, source: `plugin:${pluginId}` })
   }
 

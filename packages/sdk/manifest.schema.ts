@@ -35,7 +35,7 @@ export const PluginManifestSchema = z
   .object({
     id: z.string().regex(idPattern, '英小文字・数字・ハイフンだけにしてください（例: "photo-viewer"）'),
     name: z.string().min(1).max(60),
-    version: z.string().regex(versionPattern, '"1.0.0" のような形にしてください'),
+    version: z.string().regex(versionPattern, '"0.1.0" のような形にしてください'),
     icon: z.string().min(1).max(40),
     kind: z.enum(['web', 'app']),
     url: z.string().url().optional(),
@@ -46,6 +46,10 @@ export const PluginManifestSchema = z
   .superRefine((manifest, ctx) => {
     if (manifest.kind === 'web' && !manifest.url) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'kind が "web" のときは必須です', path: ['url'] })
+    }
+    // A web tile shows a web page; a file:// (or any other scheme) page has no place there.
+    if (manifest.url !== undefined && !/^https?:\/\/[^/]/i.test(manifest.url)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'http:// か https:// で始まる URL にしてください', path: ['url'] })
     }
     if (manifest.kind === 'app' && !manifest.entry) {
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'kind が "app" のときは必須です（通常 "index.html"）', path: ['entry'] })

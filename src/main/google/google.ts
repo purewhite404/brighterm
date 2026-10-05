@@ -1,4 +1,5 @@
 import http from 'node:http'
+import { randomBytes } from 'node:crypto'
 import type { AddressInfo } from 'node:net'
 import type { Auth, google as GoogleApis } from 'googleapis'
 import { shell } from 'electron'
@@ -63,10 +64,17 @@ export class GoogleConnector {
     const redirectUri = `http://127.0.0.1:${port}/oauth2callback`
 
     const oauth2Client = new google.auth.OAuth2(creds.clientId, creds.clientSecret, redirectUri)
+    // PKCE + state (RFC 8252): another program on this machine can't swap in its own code
+    // or use one it intercepted.
+    const { codeVerifier, codeChallenge } = await oauth2Client.generateCodeVerifierAsync()
+    const state = randomBytes(24).toString('base64url')
     const authUrl = oauth2Client.generateAuthUrl({
       access_type: 'offline',
       prompt: 'consent',
-      scope: SCOPES
+      scope: SCOPES,
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: 'S256' as Auth.CodeChallengeMethod // a type only: googleapis loads lazily
     })
 
     const codePromise = new Promise<string>((resolve, reject) => {
@@ -79,6 +87,11 @@ export class GoogleConnector {
         const url = new URL(req.url ?? '/', redirectUri)
         if (url.pathname !== '/oauth2callback') {
           res.writeHead(404).end()
+          return
+        }
+        if (url.searchParams.get('state') !== state) {
+          // Not our browser round trip (a stale tab, another program): ignore it, keep waiting.
+          res.writeHead(400).end()
           return
         }
         const code = url.searchParams.get('code')
@@ -100,7 +113,7 @@ export class GoogleConnector {
 
     try {
       const code = await codePromise
-      const { tokens } = await oauth2Client.getToken(code)
+      const { tokens } = await oauth2Client.getToken({ code, codeVerifier })
       if (!tokens.refresh_token) {
         throw new Error(
           '既に承認済みのため refresh token を取得できませんでした。Google アカウントの' +

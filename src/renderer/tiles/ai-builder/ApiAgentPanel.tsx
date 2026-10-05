@@ -61,6 +61,7 @@ export function ApiAgentPanel(): React.JSX.Element {
   const [hasKey, setHasKey] = useState(false)
   const [events, setEvents] = useState<AgentEvent[]>([])
   const [running, setRunning] = useState(false)
+  const [keyError, setKeyError] = useState<string | null>(null)
 
   useEffect(() => {
     void window.api.builder.hasApiKey(provider).then(setHasKey)
@@ -70,7 +71,14 @@ export function ApiAgentPanel(): React.JSX.Element {
 
   const saveKey = async (): Promise<void> => {
     if (!apiKey.trim()) return
-    await window.api.builder.setApiKey(provider, apiKey.trim())
+    setKeyError(null)
+    try {
+      await window.api.builder.setApiKey(provider, apiKey.trim())
+    } catch (err) {
+      // e.g. no OS encryption on this machine: the key is never stored in plain text.
+      setKeyError((err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+      return
+    }
     setHasKey(true)
     setApiKey('')
   }
@@ -107,6 +115,7 @@ export function ApiAgentPanel(): React.JSX.Element {
             />
             <button onClick={saveKey}>保存</button>
           </div>
+          {keyError && <div className="bt-message bt-message--error">{keyError}</div>}
         </div>
       )}
       <div>

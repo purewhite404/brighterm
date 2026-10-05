@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
-import type { CryptoAdapter } from '../cryptoAdapter'
+import { encryptOrThrow, type CryptoAdapter } from '../cryptoAdapter'
 
 /**
  * Persists the one thing Google OAuth needs across restarts: the refresh
@@ -24,11 +24,10 @@ export class GoogleCredentialsStore {
   ) {}
 
   read(): GoogleCredentials | null {
-    if (!existsSync(this.filePath)) return null
+    // Without encryption nothing can have been saved (see encryptOrThrow) — nor read back.
+    if (!existsSync(this.filePath) || !this.crypto.isAvailable()) return null
     try {
-      const raw = readFileSync(this.filePath)
-      const json = this.crypto.isAvailable() ? this.crypto.decrypt(raw) : raw.toString('utf-8')
-      return JSON.parse(json)
+      return JSON.parse(this.crypto.decrypt(readFileSync(this.filePath)))
     } catch (err) {
       console.error('[GoogleCredentialsStore] failed to read stored credentials:', err)
       return null
@@ -36,9 +35,7 @@ export class GoogleCredentialsStore {
   }
 
   write(creds: GoogleCredentials): void {
-    const json = JSON.stringify(creds)
-    const data = this.crypto.isAvailable() ? this.crypto.encrypt(json) : Buffer.from(json, 'utf-8')
-    writeFileSync(this.filePath, data)
+    writeFileSync(this.filePath, encryptOrThrow(this.crypto, JSON.stringify(creds)))
   }
 
   update(patch: Partial<GoogleCredentials>): GoogleCredentials {

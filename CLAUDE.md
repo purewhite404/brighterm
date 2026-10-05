@@ -136,6 +136,17 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   warnings. `PluginFrame` shows failed host calls + uncaught plugin errors (reported by
   `bridgeScript.ts`) in an error bar with a runtime fix request, and reloads when the
   plugin's `installedAt` changes (reinstall of the same id).
+- **Security** (see README「セキュリティ」): `src/main/security.ts` — the shell never navigates
+  (`will-frame-navigate`) and is `sandbox: true`; IPC is accepted only from the shell's main
+  frame (`guardIpcSenders` wraps `ipcMain.handle/on`, installed before every `register*Ipc`);
+  permissions: shell/plugin session gets only clipboard-write + fullscreen, tile sessions ask
+  through a dialog (remembered until quit); no `<webview>`; no subframe may load http/file in
+  the shell's session. URLs that leave the app go through `shared/urlSafety.ts`
+  (`isSafeExternalUrl` = http/https/mailto). Paths a plugin passes go through
+  `utils/pathGuard.ts` `isInside` (on Windows `path.relative` returns *absolute* paths for
+  another drive / UNC — a `..` check alone let plugins out). Plugin responses carry a CSP built
+  from the manifest's network domains (`plugins/pluginCsp.ts`). `net.fetch` is https-only,
+  re-checks every redirect, 30 s / 10 MB. Secrets are never written without `safeStorage`.
 - Pure logic lives in small modules with `*.test.ts` next to them; Electron-dependent
   glue (pkexec, augtool, OAuth, OpenAI) is reviewed but not executable here.
 
@@ -150,6 +161,20 @@ Code is organized **per tile/feature** in every layer (same folder names where p
 4. `tests/e2e/<tile>.spec.ts` using `tests/e2e/helpers.ts`.
 
 ## Gotchas already paid for (don't rediscover them)
+
+- **Toolchain (2026-10-05)**: Electron 44, electron-builder 26, electron-vite 5 with **vite 7**
+  (electron-vite 5's peer range stops at vite 7; vite 8 needs electron-vite 6, beta then),
+  vitest 5. `npm audit` was 0 after the upgrade. node-pty's N-API prebuilds work unchanged.
+- **Electron 44 `capturePage()`** can throw `UnknownVizError` right after a window is shown
+  while other apps start (parallel e2e workers); 0.2 s later it works — e2e captures retry.
+- **`navigator.clipboard.writeText` fails without window focus** (Electron 44; e2e windows never
+  have it). Copy goes through main: `window.api.clipboard.writeText`.
+- **A plugin `<iframe>` navigating itself to a web site** is stopped by the shell's own CSP
+  (`frame-src plugin-app:` → `ERR_BLOCKED_BY_CSP`, the frame shows an error page under that
+  URL — so don't assert on the frame URL, assert the site got no request). `will-frame-navigate`
+  isn't emitted for it.
+- **Playwright and a cancelled shell navigation**: after `location.href = …` is blocked, locators
+  on the shell page keep "waiting for navigation to finish"; check with `evaluate` instead.
 
 - **node-pty**: pinned `1.2.0-beta.15` because it ships N-API prebuilds for all OSes.
   Never run `electron-builder install-app-deps` / electron-rebuild; `npmRebuild: false`
@@ -374,6 +399,15 @@ Then (2026-10-03, later) Dock icons can be dragged onto the tiles (same real-res
 the command palette was removed — the Dock opens wide over the tiles with names instead
 (menu button / Ctrl+K; Escape or a click outside closes). The user chose: a new tile dropped
 on a tile's centre halves it along its longer side; a click still splits the largest tile.
+
+Then (2026-10-05) a security pass before publishing on GitHub (public): Electron 33 → 44 and
+the toolchain (`npm audit` 25 → 0), external opens limited to http/https/mailto (plugin
+`window.open`, HQ card URLs, IPC), plugin paths can't leave the folder on Windows (other drive /
+UNC), shell locked to its page + sandboxed + IPC sender check, permission dialogs for web tiles,
+plugin CSP from the manifest's network domains, web views open only web pages, `net.fetch`
+https + redirect checks, API-agent installs ask first, OAuth PKCE + state, no plain-text
+secrets, CI token read-only. All in `tests/e2e/security.spec.ts` + unit tests. Versions are
+major 0 (app 0.1.0, Notes 0.3.0, Slack 0.1.0, SDK templates/examples 0.1.0). MIT `LICENSE` added.
 
 Known gaps / possible next steps:
 - Folder bar: no breadcrumb (clickable segments to go up) yet.

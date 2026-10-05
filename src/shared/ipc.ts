@@ -13,6 +13,7 @@ export const IPC = {
   shellOpenExternal: 'shell:open-external',
   shellOpenPath: 'shell:open-path',
   shellShowItem: 'shell:show-item',
+  clipboardWriteText: 'clipboard:write-text',
 
   // Web views (Browser, Mail, web plugins, AI Builder chat, Files preview) and overlays
   tileCreate: 'tile:create',

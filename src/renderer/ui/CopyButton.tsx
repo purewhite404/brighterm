@@ -22,7 +22,7 @@ export function CopyButton({
 
   const copy = async (): Promise<void> => {
     try {
-      await navigator.clipboard.writeText(getText())
+      await window.api.clipboard.writeText(getText())
       setState('copied')
     } catch {
       setState('failed')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { describePermission } from './permissions'
+import { describePermission } from './permissionWords'
 
 describe('describePermission', () => {
   it('explains each permission in plain words', () => {

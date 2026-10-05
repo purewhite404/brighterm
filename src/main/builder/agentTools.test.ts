@@ -12,13 +12,21 @@ describe('AgentToolRunner', () => {
   let stagingDir: string
   let pluginHost: PluginHost
   let runner: AgentToolRunner
+  /** What the user answers in the install dialog, and the manifests they were shown. */
+  let userSaysYes: boolean
+  let asked: string[]
 
   beforeEach(() => {
     pluginsDir = mkdtempSync(join(tmpdir(), 'brighterm-agent-plugins-'))
     stagingParent = mkdtempSync(join(tmpdir(), 'brighterm-agent-staging-'))
     stagingDir = join(stagingParent, 'run')
     pluginHost = new PluginHost(pluginsDir)
-    runner = new AgentToolRunner(pluginHost, stagingDir)
+    userSaysYes = true
+    asked = []
+    runner = new AgentToolRunner(pluginHost, stagingDir, async (manifest) => {
+      asked.push(manifest.id)
+      return userSaysYes
+    })
   })
 
   afterEach(() => {
@@ -92,7 +100,27 @@ describe('AgentToolRunner', () => {
     })
     const result = (await runner.call('install_staged_bundle', {})) as { ok: boolean }
     expect(result.ok).toBe(true)
+    expect(asked).toEqual(['my-plugin'])
     expect(pluginHost.list().map((p) => p.manifest.id)).toEqual(['my-plugin'])
+  })
+
+  it('install_staged_bundle installs nothing when the user says no', async () => {
+    userSaysYes = false
+    await runner.call('write_staging_file', {
+      path: 'manifest.json',
+      content: JSON.stringify({ id: 'unwanted', name: 'Unwanted', version: '0.1.0', icon: 'note', kind: 'web', url: 'https://example.com', permissions: [] })
+    })
+    const result = (await runner.call('install_staged_bundle', {})) as { ok: boolean; errors: Array<{ message: string }> }
+    expect(result.ok).toBe(false)
+    expect(result.errors[0].message).toContain('取りやめました')
+    expect(pluginHost.list()).toEqual([])
+  })
+
+  it('install_staged_bundle does not ask about a bundle that would not install anyway', async () => {
+    await runner.call('write_staging_file', { path: 'manifest.json', content: '{ "id": "Bad" }' })
+    const result = (await runner.call('install_staged_bundle', {})) as { ok: boolean }
+    expect(result.ok).toBe(false)
+    expect(asked).toEqual([])
   })
 
   it('read_plugin returns the installed plugin files for an existing plugin', async () => {

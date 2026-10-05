@@ -312,7 +312,17 @@ test('Files: PDF / audio previews follow the clicked file; the Files tile keeps 
           .map((c) => c as Electron.WebContentsView)
           .filter((c) => c.webContents.getURL().startsWith('file:'))
         if (views.length !== 1) return { count: views.length, url: '', painted: 0, bounds: null }
-        const bmp = (await views[0].webContents.capturePage()).toBitmap()
+        // Retried: a capture can fail for a moment under load ("UnknownVizError", Electron 44).
+        let image: Electron.NativeImage | null = null
+        for (let attempt = 0; !image; attempt++) {
+          try {
+            image = await views[0].webContents.capturePage()
+          } catch (err) {
+            if (attempt >= 20) throw err
+            await new Promise((r) => setTimeout(r, 100))
+          }
+        }
+        const bmp = image.toBitmap()
         let painted = 0
         for (let i = 0; i < bmp.length; i += 4 * 97) if (bmp[i] > 40) painted++
         return { count: 1, url: views[0].webContents.getURL(), painted, bounds: views[0].getBounds() }

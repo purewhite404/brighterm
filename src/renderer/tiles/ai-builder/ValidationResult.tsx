@@ -1,7 +1,7 @@
 import type { PluginInstallIssue, PluginInstallResult, PluginListItem } from '@shared/apiTypes'
 import { CopyButton } from '../../ui/CopyButton'
 import { Icon } from '../../ui/Icon'
-import { describePermission } from './permissions'
+import { describePermission } from '@shared/permissionWords'
 import { buildFixPrompt } from './promptBuilder'
 
 const issueText = (issue: PluginInstallIssue): string => (issue.file ? `${issue.file}: ${issue.message}` : issue.message)

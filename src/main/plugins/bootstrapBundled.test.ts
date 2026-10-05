@@ -52,6 +52,15 @@ describe('installBundledPlugins', () => {
     expect(ids.sort()).toEqual(['notes', 'slack'])
   })
 
+  it('switches to the bundled version even when it is lower (Notes 1.3.0 → 0.3.0 when versions went to major 0)', () => {
+    const notes = (version: string) => ({ id: 'notes', name: 'Notes', version, icon: 'note', kind: 'web', url: 'https://example.com', permissions: [] })
+    writeManifest(join(builtinDir, 'notes'), notes('1.3.0'))
+    installBundledPlugins(pluginHost, builtinDir)
+    writeManifest(join(builtinDir, 'notes'), notes('0.3.0'))
+    installBundledPlugins(pluginHost, builtinDir)
+    expect(pluginHost.getListItem('notes')?.manifest.version).toBe('0.3.0')
+  })
+
   it('reads nested files (not just manifest.json) for an app-kind plugin', () => {
     const dir = join(builtinDir, 'notes')
     writeManifest(dir, {

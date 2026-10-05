@@ -1,8 +1,10 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import type { PluginHost } from '../plugins/pluginHost'
 import { readDirAsBundleFiles } from '../plugins/dirBundle'
 import type { AgentToolDef } from './providers/types'
+import type { PluginManifest } from '@sdk/manifest.schema'
+import { isInside } from '../utils/pathGuard'
 
 /**
  * The tool surface the API-agent mode (mode 2) gets. Every write lands in a
@@ -60,10 +62,14 @@ export const AGENT_TOOL_DEFS: AgentToolDef[] = [
   }
 ]
 
+/** Asks the user before the agent's plugin is installed (it may ask for folders, network…). */
+export type ConfirmInstall = (manifest: PluginManifest) => Promise<boolean>
+
 export class AgentToolRunner {
   constructor(
     private readonly pluginHost: PluginHost,
-    private readonly stagingDir: string
+    private readonly stagingDir: string,
+    private readonly confirmInstall: ConfirmInstall
   ) {
     mkdirSync(stagingDir, { recursive: true })
   }
@@ -91,7 +97,7 @@ export class AgentToolRunner {
         const content = String(a.content ?? '')
         if (!isSafeRelativePath(path)) throw new Error(`不正なパスです: "${path}"`)
         const target = resolve(this.stagingDir, path)
-        if (relative(this.stagingDir, target).startsWith('..')) throw new Error(`不正なパスです: "${path}"`)
+        if (!isInside(this.stagingDir, target)) throw new Error(`不正なパスです: "${path}"`)
         mkdirSync(join(target, '..'), { recursive: true })
         writeFileSync(target, content, 'utf-8')
         return { ok: true }
@@ -104,6 +110,12 @@ export class AgentToolRunner {
 
       case 'install_staged_bundle': {
         const files = readDirAsBundleFiles(this.stagingDir)
+        // The model decides when to call this; the user decides whether it happens.
+        const validation = this.pluginHost.validate(files)
+        if (!validation.ok || !validation.manifest) return validation
+        if (!(await this.confirmInstall(validation.manifest))) {
+          return { ok: false, errors: [{ message: 'ユーザーがインストールを取りやめました。作業を終えて、その旨を伝えてください。' }], warnings: [] }
+        }
         return this.pluginHost.install(files)
       }
 

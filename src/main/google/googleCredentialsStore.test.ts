@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from 'vitest'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { GoogleCredentialsStore, type CryptoAdapter } from './googleCredentialsStore'
@@ -42,10 +42,11 @@ describe('GoogleCredentialsStore', () => {
     expect(store.isConnected()).toBe(true)
   })
 
-  it('falls back to plaintext when encryption is unavailable', () => {
+  it('refuses to save credentials in plain text when encryption is unavailable', () => {
     const store = new GoogleCredentialsStore(filePath, fakeCrypto(false))
-    store.write({ clientId: 'id', clientSecret: 'secret' })
-    expect(store.read()).toEqual({ clientId: 'id', clientSecret: 'secret' })
+    expect(() => store.write({ clientId: 'id', clientSecret: 'secret' })).toThrow(/暗号化.*保存できません/)
+    expect(existsSync(filePath)).toBe(false)
+    expect(store.read()).toBeNull()
   })
 
   it('update() merges into existing credentials without clobbering unrelated fields', () => {

@@ -185,6 +185,19 @@ describe('PluginHostApiBridge', () => {
       expect(() => bridge.readFile('escape-plugin', 'folder-1', '../../etc/passwd')).toThrow(/選んだフォルダの外/)
     })
 
+    it('rejects absolute paths, other drives and UNC shares (path.relative returns those absolute on Windows)', () => {
+      pluginHost.install(pluginFiles('escape-plugin-2', [{ type: 'folders' }]))
+      seedFolderHandle('escape-plugin-2', 'folder-1', grantedDir())
+      const attempts = process.platform === 'win32'
+        ? ['Z:\\secret.txt', 'Z:secret.txt', '\\\\attacker\\share\\x.txt', '//attacker/share/x.txt', 'C:\\Windows\\win.ini']
+        : ['/etc/passwd']
+      for (const p of attempts) {
+        expect(() => bridge.readFile('escape-plugin-2', 'folder-1', p), p).toThrow(/選んだフォルダの外/)
+        expect(() => bridge.writeFile('escape-plugin-2', 'folder-1', p, 'x'), p).toThrow(/選んだフォルダの外/)
+        expect(() => bridge.deleteFile('escape-plugin-2', 'folder-1', p), p).toThrow(/選んだフォルダの外/)
+      }
+    })
+
     it('grants a typed folder path (the folder bar): same folder → same handle, and its path goes back only to the shell', () => {
       pluginHost.install(pluginFiles('bar-plugin', [{ type: 'folders' }]))
       const rootPath = grantedDir()
@@ -239,14 +252,70 @@ describe('PluginHostApiBridge', () => {
 
     it('allows a request to a declared domain', async () => {
       pluginHost.install(pluginFiles('net-plugin-2', [{ type: 'network', domains: ['api.example.com'] }]))
-      const fetchMock = vi.fn().mockResolvedValue({ status: 200, text: () => Promise.resolve('{"ok":true}') })
+      const fetchMock = vi.fn().mockResolvedValue(new Response('{"ok":true}', { status: 200 }))
       vi.stubGlobal('fetch', fetchMock)
+      try {
+        const result = await bridge.netFetch('net-plugin-2', 'https://api.example.com/data', { method: 'POST', body: 'q=1' })
+        expect(result).toEqual({ status: 200, text: '{"ok":true}' })
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(fetchMock.mock.calls[0][0]).toBe('https://api.example.com/data')
+        expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST', body: 'q=1', redirect: 'manual' })
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
 
-      const result = await bridge.netFetch('net-plugin-2', 'https://api.example.com/data')
-      expect(result).toEqual({ status: 200, text: '{"ok":true}' })
-      expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/data', undefined)
+    it('is https only', async () => {
+      pluginHost.install(pluginFiles('net-plugin-3', [{ type: 'network', domains: ['api.example.com'] }]))
+      const fetchMock = vi.fn()
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        await expect(bridge.netFetch('net-plugin-3', 'http://api.example.com/data')).rejects.toThrow(/https:\/\/ で始まる URL/)
+        await expect(bridge.netFetch('net-plugin-3', 'file:///C:/Windows/win.ini')).rejects.toThrow(/https:\/\/ で始まる URL/)
+        expect(fetchMock).not.toHaveBeenCalled()
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
 
-      vi.unstubAllGlobals()
+    it('follows a redirect within the declared domains, but never to another site', async () => {
+      pluginHost.install(pluginFiles('net-plugin-4', [{ type: 'network', domains: ['api.example.com', 'cdn.example.com'] }]))
+      const redirect = (to: string, status = 302) => new Response(null, { status, headers: { location: to } })
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(redirect('https://cdn.example.com/v2'))
+        .mockResolvedValueOnce(new Response('moved', { status: 200 }))
+        .mockResolvedValueOnce(redirect('https://attacker.example.net/steal', 307))
+      vi.stubGlobal('fetch', fetchMock)
+      try {
+        expect(await bridge.netFetch('net-plugin-4', 'https://api.example.com/v1')).toEqual({ status: 200, text: 'moved' })
+        expect(fetchMock.mock.calls[1][0]).toBe('https://cdn.example.com/v2')
+        await expect(bridge.netFetch('net-plugin-4', 'https://api.example.com/x', { method: 'POST', body: 'secret' })).rejects.toThrow(
+          /attacker.example.net.*許可されていません/
+        )
+        expect(fetchMock).toHaveBeenCalledTimes(3)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('refuses a huge response instead of buffering it in main', async () => {
+      pluginHost.install(pluginFiles('net-plugin-5', [{ type: 'network', domains: ['api.example.com'] }]))
+      const chunk = new Uint8Array(1024 * 1024)
+      let sent = 0
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (sent++ > 20) controller.close()
+          else controller.enqueue(chunk)
+        }
+      })
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(stream, { status: 200 })))
+      try {
+        await expect(bridge.netFetch('net-plugin-5', 'https://api.example.com/big')).rejects.toThrow(/応答が大きすぎます/)
+        expect(sent).toBeLessThan(15)
+      } finally {
+        vi.unstubAllGlobals()
+      }
     })
   })
 
@@ -262,6 +331,18 @@ describe('PluginHostApiBridge', () => {
       pluginHost.install(pluginFiles('card-plugin', [{ type: 'hqCards' }]))
       bridge.publishCard('card-plugin', { id: 'x', priority: 'high', title: 'Hello' })
       expect(publishedCards).toEqual([{ id: 'x', priority: 'high', title: 'Hello', source: 'plugin:card-plugin' }])
+    })
+
+    it('only lets a card link to a web page (a file:// or custom-protocol URL would start a program)', () => {
+      pluginHost.install(pluginFiles('card-plugin-3', [{ type: 'hqCards' }]))
+      for (const url of ['file:///C:/Windows/System32/calc.exe', '\\\\attacker\\share\\x.exe', 'ms-msdt:/id x', 'javascript:alert(1)']) {
+        expect(() =>
+          bridge.publishCard('card-plugin-3', { id: 'x', priority: 'high', title: 'Hi', action: { label: 'Open', url } })
+        ).toThrow(/http:\/\/ か https:\/\//)
+      }
+      expect(publishedCards).toEqual([])
+      bridge.publishCard('card-plugin-3', { id: 'y', priority: 'high', title: 'Hi', action: { label: 'Open', url: 'https://example.com/' } })
+      expect(publishedCards).toHaveLength(1)
     })
 
     it('forwards a card clear request', () => {
