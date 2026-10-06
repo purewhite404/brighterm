@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatPosixMode, formatWinMode, parseWinAttrListing, validateNewName } from './fsService'
+import { formatPosixMode, formatWinMode, parseFindPrint0, parseWinAttrListing, validateNewName } from './fsService'
 
 describe('mode strings', () => {
   it('formats POSIX permissions like ls -l', () => {
@@ -24,6 +24,14 @@ describe('parseWinAttrListing', () => {
     expect([...map.get('NTUSER.DAT')!].sort()).toEqual(['a', 'h', 's'])
     expect([...map.get('Documents')!]).toEqual(['r'])
     expect([...map.get('AppData')!]).toEqual(['h'])
+  })
+})
+
+describe('parseFindPrint0', () => {
+  it('takes the names from NUL-separated paths, spaces, newlines and non-ASCII intact', () => {
+    const out = '/Users/me/Library\0/Users/me/日本語 名前\0/Users/me/two\nlines\0'
+    expect([...parseFindPrint0(out)]).toEqual(['Library', '日本語 名前', 'two\nlines'])
+    expect(parseFindPrint0('').size).toBe(0)
   })
 })
 

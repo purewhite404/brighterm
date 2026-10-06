@@ -29,6 +29,8 @@ interface ManagedView {
   hidden: boolean
   /** When it became hidden — suspension only ever targets views hidden for a while. */
   hiddenSince: number
+  /** The last URL navigate() asked for, until the page or the user goes somewhere else (see load()). */
+  requestedUrl?: string | null
 }
 
 export interface ViewManagerOptions {
@@ -170,6 +172,10 @@ export class ViewManager {
       })
     }
     view.webContents.on('did-navigate', reportNavigation)
+    // A link / script in the page: from now on that's what the user wants, not what navigate() asked for.
+    view.webContents.on('did-start-navigation', (details) => {
+      if (details.isMainFrame && !details.isSameDocument && details.initiator) entry.requestedUrl = null
+    })
     view.webContents.once('did-finish-load', () => perfMark(`view-loaded:${entry.tileId}`))
     view.webContents.on('did-navigate-in-page', reportNavigation)
 
@@ -245,23 +251,57 @@ export class ViewManager {
     if (!entry) return
     if (onlyIfChanged && entry.url === url) return
     entry.url = url
-    void entry.view?.webContents.loadURL(url).catch(() => {
-      /* failed navigations surface as an error page in the view itself */
-    })
+    entry.requestedUrl = url
+    this.load(entry, url)
+  }
+
+  /**
+   * A load issued while the previous one is still starting can be dropped by Chromium: the Files
+   * preview blanks its view (about:blank) when it leaves a file and loads the next file ~5 ms later —
+   * now and then that second load never started (no did-start-navigation), loadURL() still resolved
+   * with the blank page's did-finish-load, and the preview stayed empty (2-3 of 12 runs on a Mac,
+   * 2026-10-06). Never started (or aborted), and nothing asked for another page meanwhile: load it
+   * once more. (Other failures surface as an error page in the view itself.)
+   */
+  private load(entry: ManagedView, url: string, retried = false): void {
+    const wc = entry.view?.webContents
+    if (!wc) return
+    let started = false
+    const onStart = (details: Electron.Event<Electron.WebContentsDidStartNavigationEventParams>): void => {
+      if (details.isMainFrame && !details.isSameDocument) started = true
+    }
+    wc.on('did-start-navigation', onStart)
+    const settled = (aborted: boolean): void => {
+      if (wc.isDestroyed()) return
+      wc.removeListener('did-start-navigation', onStart)
+      if (retried || (started && !aborted)) return
+      if (entry.requestedUrl !== url || entry.view?.webContents !== wc || wc.getURL() === url) return
+      this.load(entry, url, true)
+    }
+    wc.loadURL(url).then(
+      () => settled(false),
+      (err) => settled((err as { code?: string }).code === 'ERR_ABORTED')
+    )
   }
 
   goBack(tileId: string): void {
-    const history = this.views.get(tileId)?.view?.webContents.navigationHistory
+    const entry = this.views.get(tileId)
+    const history = entry?.view?.webContents.navigationHistory
+    if (entry) entry.requestedUrl = null
     if (history?.canGoBack()) history.goBack()
   }
 
   goForward(tileId: string): void {
-    const history = this.views.get(tileId)?.view?.webContents.navigationHistory
+    const entry = this.views.get(tileId)
+    const history = entry?.view?.webContents.navigationHistory
+    if (entry) entry.requestedUrl = null
     if (history?.canGoForward()) history.goForward()
   }
 
   reload(tileId: string): void {
-    this.views.get(tileId)?.view?.webContents.reload()
+    const entry = this.views.get(tileId)
+    if (entry) entry.requestedUrl = null
+    entry?.view?.webContents.reload()
   }
 
   markActive(tileId: string): void {
@@ -325,9 +365,9 @@ export class ViewManager {
       if (generation !== this.overlayGeneration) return
       if (!entry.view || entry.suspended || entry.hidden) continue
       try {
-        const image = await entry.view.webContents.capturePage()
+        const image = await captureWithRetry(entry.view.webContents, () => generation !== this.overlayGeneration)
         // Released already (e.g. a quick click on a splitter): leave the view where it is.
-        if (generation !== this.overlayGeneration || !entry.view) return
+        if (!image || generation !== this.overlayGeneration || !entry.view) return
         // JPEG: encoding is several times faster than PNG and it's only shown for a moment.
         entry.snapshot = `data:image/jpeg;base64,${image.toJPEG(90).toString('base64')}`
         this.options.onSnapshotUpdated?.(entry.tileId, entry.snapshot)
@@ -380,6 +420,23 @@ export class ViewManager {
       this.detachAndDestroy(entry)
     }
     this.views.clear()
+  }
+}
+
+/**
+ * Electron 44's capturePage() now and then throws "UnknownVizError" (seen on Windows right after the
+ * window is shown, and on macOS in parallel e2e runs: 2 of 8 splitter drags got no snapshot, so the
+ * page stayed on top of the guide line); a moment later it works. Null when `cancelled` first.
+ */
+async function captureWithRetry(wc: Electron.WebContents, cancelled: () => boolean): Promise<Electron.NativeImage | null> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await wc.capturePage()
+    } catch (err) {
+      if (attempt >= 4 || wc.isDestroyed()) throw err
+      await new Promise((r) => setTimeout(r, 100))
+      if (cancelled()) return null
+    }
   }
 }
 

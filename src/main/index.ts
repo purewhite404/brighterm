@@ -68,6 +68,10 @@ function boot(): void {
     // E2E: the window sits off screen (window.ts). Without this, Chromium on Windows counts it as
     // occluded and marks every page hidden: no painting, no rAF, and the app's own pause-on-hidden.
     app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion')
+    // The same on macOS (NSWindow occlusion): an off-screen page went `hidden` after its first frame
+    // and capturePage() failed ("Current display surface not available"). MacWebContentsOcclusion
+    // off alone didn't help; this switch did (bare Electron 44 script, 2026-10-06).
+    if (process.platform === 'darwin') app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
   }
 
   const fsWatchers = new FsWatchRegistry()

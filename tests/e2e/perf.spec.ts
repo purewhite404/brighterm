@@ -1,12 +1,14 @@
 import { test, type ElectronApplication, type Page } from '@playwright/test'
 import { mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { launchIn, removeDir, seedWorkspace, startSite, tempDir } from './helpers'
 
 /*
  * Measurements, not assertions — skipped unless BRIGHTERM_PERF_SPEC=1:
  * startup timeline (src/main/perf.ts marks + the shell's performance marks),
- * splitter drag cost (CPU, IPC count), idle CPU. Results: %TEMP%\brighterm-perf\<PERF_LABEL>.json.
+ * splitter drag cost (CPU, IPC count), idle CPU. Results: <os.tmpdir()>/brighterm-perf/<PERF_LABEL>.json
+ * (Windows: %TEMP%\brighterm-perf, macOS: $TMPDIR/brighterm-perf).
  *   cmd.exe /c "set BRIGHTERM_PERF_SPEC=1&& set PERF_LABEL=after&& npx playwright test tests/e2e/perf.spec.ts --reporter=line"
  * Optional: BRIGHTERM_PERF_PROFILE=<file> (main-process CPU profile), BRIGHTERM_PERF_TRACE=<file>
  * (Chromium trace) — see perf.ts.
@@ -26,7 +28,7 @@ test.afterAll(() => {
 
 const RUNS = Number(process.env.PERF_RUNS ?? 3)
 const LABEL = process.env.PERF_LABEL ?? 'run'
-const OUT = 'C:\\Users\\satoshi\\AppData\\Local\\Temp\\brighterm-perf'
+const OUT = join(tmpdir(), 'brighterm-perf')
 
 const leaf = (tileId: string) => ({ type: 'leaf', tileId })
 const split = (direction: 'row' | 'column', a: object, b: object, ratio = 0.5) => ({ type: 'split', direction, ratio, a, b })

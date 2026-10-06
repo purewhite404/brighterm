@@ -23,6 +23,9 @@ const TINY_PNG = Buffer.from(
   'base64'
 )
 
+/** Whether makeTree() can hide WinHidden with a file flag on this OS (Linux has none). */
+const OS_HIDDEN_FLAG = process.platform === 'win32' || process.platform === 'darwin'
+
 function makeTree(): string {
   const root = tempDir('brighterm-files-')
   mkdirSync(join(root, 'docs'))
@@ -36,7 +39,9 @@ function makeTree(): string {
   writeFileSync(join(root, 'plain.dat'), 'just some words\n')
   writeFileSync(join(root, 'main.py'), 'import os\nimport sys\n\ndef main():\n    print(os.getcwd())\n')
   writeFileSync(join(root, 'pixel.png'), TINY_PNG)
+  // Hidden by the OS's own flag, not by a dot (Windows: attribute h; macOS: chflags hidden, like ~/Library).
   if (process.platform === 'win32') execFileSync('attrib', ['+h', join(root, 'WinHidden')])
+  if (process.platform === 'darwin') execFileSync('chflags', ['hidden', join(root, 'WinHidden')])
   return root
 }
 
@@ -101,7 +106,9 @@ test('Files: hidden entries are hidden by default, ls-style columns are shown, s
   seedFiles(dir, root)
   const s = await launchIn(dir)
   try {
-    await expect.poll(() => names(s.window)).toEqual([root, 'docs', 'app.log', 'main.py', 'memo.txt', 'page.txt', 'pixel.png', 'plain.dat'])
+    await expect
+      .poll(() => names(s.window))
+      .toEqual([root, 'docs', ...(OS_HIDDEN_FLAG ? [] : ['WinHidden']), 'app.log', 'main.py', 'memo.txt', 'page.txt', 'pixel.png', 'plain.dat'])
 
     // Mode / size / modified columns by default.
     const memo = row(s.window, 'memo.txt')
@@ -115,7 +122,7 @@ test('Files: hidden entries are hidden by default, ls-style columns are shown, s
     await settings.getByLabel('隠しファイルを表示').check()
     await expect.poll(() => names(s.window)).toContain('.env')
     expect(await names(s.window)).toEqual(
-      expect.arrayContaining(['.git', '.env', ...(process.platform === 'win32' ? ['WinHidden'] : [])])
+      expect.arrayContaining(['.git', '.env', ...(OS_HIDDEN_FLAG ? ['WinHidden'] : [])])
     )
 
     await settings.getByLabel('作成日時').check()

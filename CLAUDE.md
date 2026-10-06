@@ -49,6 +49,15 @@ binaries. From a WSL shell:
   (`/mnt/c/Users/satoshi/AppData/Local/Temp/` from WSL) — screenshots go there too.
 - The user runs `npm run dev` themselves, from PowerShell.
 
+### Working on the Mac (arm64)
+
+The user also has a Mac (`/Users/sat/brighterm`, 2026-10-06). Its `node_modules` is the
+macOS one (Electron.app, `@rollup/rollup-darwin-arm64`, node-pty's darwin prebuild): run
+`npm run typecheck` / `npm run test` / `npm run test:e2e` / `npx playwright test …` and git
+directly from zsh — no `cmd.exe`. Temp dirs are `$TMPDIR` (`/var/folders/…/T/`). The whole
+e2e suite: 69 passed, 3 skipped (PowerShell, perf ×2) in ~40 s with 4 workers. The Terminal
+runs `$SHELL` / zsh (`ptyManager.ts`).
+
 ## Architecture in one screen
 
 Code is organized **per tile/feature** in every layer (same folder names where possible):
@@ -166,7 +175,15 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   (electron-vite 5's peer range stops at vite 7; vite 8 needs electron-vite 6, beta then),
   vitest 5. `npm audit` was 0 after the upgrade. node-pty's N-API prebuilds work unchanged.
 - **Electron 44 `capturePage()`** can throw `UnknownVizError` right after a window is shown
-  while other apps start (parallel e2e workers); 0.2 s later it works — e2e captures retry.
+  while other apps start (parallel e2e workers); 0.2 s later it works — e2e captures retry, and so
+  does the overlay snapshot (`captureWithRetry` in viewManager.ts: on the Mac 2 of 8 splitter drags
+  got no snapshot without it).
+- **Two `loadURL`s ~5 ms apart**: Chromium can drop the second one — it never starts, and its
+  promise still resolves with the first page's `did-finish-load`. The Files preview blanks its view
+  (about:blank) on leaving a file and loads the next right after; the preview stayed blank in 2-3 of
+  12 runs on the Mac. `ViewManager.load()` loads once more when its navigation never started (or
+  was aborted) and nobody asked for another page since (`requestedUrl`, cleared by in-page
+  navigations and back/forward/reload).
 - **`navigator.clipboard.writeText` fails without window focus** (Electron 44; e2e windows never
   have it). Copy goes through main: `window.api.clipboard.writeText`.
 - **A plugin `<iframe>` navigating itself to a web site** is stopped by the shell's own CSP
@@ -269,7 +286,12 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   ~40 ms compile+evaluate. Measure with `tests/e2e/perf.spec.ts` (skipped unless
   `BRIGHTERM_PERF_SPEC=1`; see `src/main/perf.ts` for the marks, CPU profile and trace).
 - **Windows file attributes** (hidden/system/readonly) come from one `cmd /u /c dir /a:X /b`
-  call per folder (`fsService.ts`); `attrib` mangles non-ASCII names in its output.
+  call per folder (`fsService.ts`); `attrib` mangles non-ASCII names in its output. On macOS
+  the `hidden` file flag (`chflags hidden`, e.g. `~/Library`) counts as hidden too: one
+  `/usr/bin/find <dir> -mindepth 1 -maxdepth 1 -flags +hidden -print0` per folder (~5 ms).
+- **Folder bar: Tab, then Enter at once** — Tab's completion is an IPC round trip; Enter used to
+  submit the text from before it (seen under the full parallel e2e load). Enter now waits for
+  a pending completion (`pendingCompletion` in FolderBar.tsx).
 - **Files → Notes**: file type is sniffed from content (`fileSniff.ts`, not the extension).
   Plain text is handed to Notes via the tile config `openRequest` → `PluginFrame` grants
   the folder and posts an `openFile` event (`brighterm.onOpenFile`).
@@ -302,6 +324,11 @@ Code is organized **per tile/feature** in every layer (same folder names where p
   (`index.ts`, test mode only): without it Chromium on Windows marks an off-screen or fully covered
   window's pages `hidden` — 0 rAF, and `capturePage()` never resolves (checked with a bare Electron
   script, 2026-10-03; under Playwright the page still *reports* visible, so a spec can't show it).
+  **macOS** pulls a framed window back on screen when it's shown (and `setPosition` keeps 40 px on
+  screen), so in test mode the window is **frameless + `enableLargerThanScreen`** there; and an
+  off-screen page goes `hidden` after one frame with `capturePage()` failing ("Current display
+  surface not available") unless `--disable-backgrounding-occluded-windows` is set
+  (`MacWebContentsOcclusion` off didn't help) — both checked with a bare Electron script, 2026-10-06.
   Playwright's input and screenshots go through CDP, not the screen. In tests, un-minimize with
   `showInactive()`, never `restore()` — that activates the window and takes the focus.
   While iterating run only the affected specs; the whole suite once at the end.

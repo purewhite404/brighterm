@@ -36,6 +36,8 @@ export function FolderBar({
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const suggestRequest = useRef(0)
+  /** A Tab completion still waiting for main's answer: an Enter right after the Tab takes its result. */
+  const pendingCompletion = useRef<Promise<string> | null>(null)
   const listId = useId()
 
   // Show the end of a long path (the folder's own name) while not editing.
@@ -91,13 +93,25 @@ export function FolderBar({
    * Tab: complete what's typed and keep typing (its subfolders come next).
    * Asks main for the completions of the input as it is right now — the list
    * on screen may still be the one for the previous keystroke, or not there yet.
+   * Resolves to what the bar holds afterwards.
    */
-  const complete = async (): Promise<void> => {
+  const complete = async (): Promise<string> => {
     const typed = inputRef.current?.value ?? value
     const found = (await window.api.plugins.suggestFolders(typed)).filter((s) => s !== typed)
-    if (inputRef.current?.value !== typed) return // typed on meanwhile
+    const now = inputRef.current?.value ?? typed
+    if (now !== typed) return now // typed on meanwhile
     const completion = tabCompletion(typed, found, CASE_INSENSITIVE)
-    if (completion) fill(completion)
+    if (!completion) return typed
+    fill(completion)
+    return completion
+  }
+
+  const startCompletion = (): void => {
+    const pending = complete()
+    pendingCompletion.current = pending
+    void pending.finally(() => {
+      if (pendingCompletion.current === pending) pendingCompletion.current = null
+    })
   }
 
   const fill = (suggestion: string): void => {
@@ -120,10 +134,13 @@ export function FolderBar({
       e.preventDefault()
       if (busy) return
       if (listOpen && highlight >= 0) fill(suggestions[highlight])
-      else void complete()
+      else startCompletion()
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      void submit(highlight >= 0 && listOpen ? suggestions[highlight] : value)
+      if (highlight >= 0 && listOpen) void submit(suggestions[highlight])
+      // Tab, Enter typed quickly (or main slow to answer): open what Tab completes to, not what was there before.
+      else if (pendingCompletion.current) void pendingCompletion.current.catch(() => inputRef.current?.value ?? value).then(submit)
+      else void submit(value)
     } else if (e.key === 'Escape') {
       e.preventDefault()
       if (listOpen) {

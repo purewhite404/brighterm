@@ -52,7 +52,7 @@ export function createMainWindow(): void {
   mainWindow = new BaseWindow({
     width: 1400,
     height: 900,
-    ...(inBackground() ? offScreenPosition() : {}),
+    ...(inBackground() ? offScreenOptions() : {}),
     minWidth: 800,
     minHeight: 600,
     show: false,
@@ -130,15 +130,19 @@ function resizeShellView(): void {
 
 /**
  * Set by tests/e2e/helpers.ts: the app must neither take the focus from the user's other windows nor
- * cover them. The window opens past the right edge of every display; index.ts turns Chromium's
- * occlusion check off in this mode so the page still counts as visible and keeps painting
+ * cover them. The window opens past the right edge of every display (frameless on macOS, see
+ * offScreenOptions); index.ts turns Chromium's occlusion check off in this mode so the page still counts as visible and keeps painting
  * (Playwright's input and screenshots go through the DevTools protocol, not the screen).
  */
 export const inBackground = (): boolean => process.env.BRIGHTERM_BACKGROUND === '1'
 
-function offScreenPosition(): { x: number; y: number } {
+function offScreenOptions(): Electron.BaseWindowConstructorOptions {
   const right = Math.max(...screen.getAllDisplays().map((d) => d.bounds.x + d.bounds.width))
-  return { x: right + 100, y: 0 }
+  const position = { x: right + 100, y: 0 }
+  // macOS pulls a framed window back on screen when it's shown (and keeps 40 px of it on screen
+  // after setPosition). Electron leaves a frameless window with enableLargerThanScreen where it was put.
+  if (process.platform === 'darwin') return { ...position, frame: false, enableLargerThanScreen: true }
+  return position
 }
 
 /** A second launch lands here (see the single-instance lock in index.ts). */

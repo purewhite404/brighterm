@@ -172,6 +172,42 @@ test('Notes: the bar completes subfolders (Tab, arrows, click)', async () => {
   }
 })
 
+test('Notes: Tab and Enter pressed at once open the folder Tab completes to, even when completions are slow', async () => {
+  // Seen in the full parallel e2e run on a Mac: Enter came before main answered the Tab, and the
+  // bar opened the folder as typed (…/Notes-work/, no notes) instead of …/Notes-work/meetings.
+  const root = tempDir('brighterm-notes-slow-')
+  mkdirSync(join(root, 'Notes-work', 'meetings'), { recursive: true })
+  writeFileSync(join(root, 'Notes-work', 'meetings', 'monday.md'), 'Monday')
+  const s = await launch()
+  try {
+    await dock(s.window, 'Notes').click()
+    const notes = s.window.frameLocator('iframe.bt-plugin-frame')
+    await folderBar(s.window).click()
+    await folderBar(s.window).fill(join(root, 'Notes-work') + sep)
+    const options = s.window.getByRole('listbox', { name: 'フォルダの候補' }).getByRole('option')
+    await expect(options).toHaveCount(1)
+    await expect(options.first()).toContainText('meetings')
+
+    // From now on main takes 0.5 s to answer (wraps the handler in Electron's own handler table).
+    await s.app.evaluate(({ ipcMain }) => {
+      const handlers = (ipcMain as unknown as { _invokeHandlers: Map<string, (...args: unknown[]) => unknown> })._invokeHandlers
+      const original = handlers.get('plugins:suggest-folders')!
+      handlers.set('plugins:suggest-folders', async (...args) => {
+        await new Promise((r) => setTimeout(r, 500))
+        return original(...args)
+      })
+    })
+    await folderBar(s.window).press('Tab')
+    await folderBar(s.window).press('Enter')
+    await expect(notes.locator('#content')).toHaveValue('Monday')
+    await expect(folderBar(s.window)).toHaveValue(join(root, 'Notes-work', 'meetings'))
+    await expect(folderBar(s.window)).not.toBeFocused()
+  } finally {
+    await s.cleanup()
+    removeDir(root)
+  }
+})
+
 test('Notes: every subfolder is offered, and Tab completes right after typing (no waiting for the list)', async () => {
   // Like the user's Documents: more folders than fit, the wanted one far down the list.
   const root = tempDir('brighterm-notes-many-')

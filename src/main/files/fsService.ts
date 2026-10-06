@@ -76,6 +76,27 @@ function readWinAttributes(dirPath: string): Promise<Map<string, Set<WinAttr>>> 
   })
 }
 
+/** Names in `find <dir> … -print0` output (NUL-separated full paths). */
+export function parseFindPrint0(output: string): Set<string> {
+  return new Set(output.split('\0').filter(Boolean).map((p) => basename(p)))
+}
+
+/**
+ * macOS hides some entries from Finder with the `hidden` file flag (`chflags hidden`, e.g.
+ * ~/Library) — the counterpart of Windows' h attribute. Node can't read file flags; BSD find
+ * can (~5 ms per folder). NUL-separated, so any name survives.
+ */
+function readMacHiddenNames(dirPath: string): Promise<Set<string>> {
+  return new Promise((resolve) => {
+    execFile(
+      '/usr/bin/find',
+      [dirPath, '-mindepth', '1', '-maxdepth', '1', '-flags', '+hidden', '-print0'],
+      { encoding: 'utf8', timeout: 5000 },
+      (_err, stdout) => resolve(parseFindPrint0(stdout ?? ''))
+    )
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Listing
 // ---------------------------------------------------------------------------
@@ -84,6 +105,7 @@ function readWinAttributes(dirPath: string): Promise<Map<string, Set<WinAttr>>> 
 export async function listDir(dirPath: string): Promise<DirEntry[]> {
   const dirents = readdirSync(dirPath, { withFileTypes: true })
   const winAttrs = process.platform === 'win32' ? await readWinAttributes(dirPath) : null
+  const macHidden = process.platform === 'darwin' ? await readMacHiddenNames(dirPath) : null
 
   return dirents
     .map((dirent) => {
@@ -105,7 +127,7 @@ export async function listDir(dirPath: string): Promise<DirEntry[]> {
         /* race (removed since readdir), dangling link or no permission */
       }
       const attrs = winAttrs?.get(dirent.name) ?? new Set<WinAttr>()
-      const hidden = dirent.name.startsWith('.') || attrs.has('h') || attrs.has('s')
+      const hidden = dirent.name.startsWith('.') || attrs.has('h') || attrs.has('s') || !!macHidden?.has(dirent.name)
       const mode = winAttrs
         ? formatWinMode(isDirectory, attrs)
         : formatPosixMode(posixMode, isLink ? 'link' : isDirectory ? 'dir' : 'file')
